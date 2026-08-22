@@ -1,4 +1,6 @@
-// In development, always fetch from the network and do not enable offline support.
-// This is because caching would make development more difficult (changes would not
-// be reflected on the first load after each change).
-self.addEventListener('fetch', () => { });
+// Minimal service worker: only enables PWA installability and lets the app
+// show notifications via ServiceWorkerRegistration.showNotification().
+// Deliberately no asset pre-caching / offline support, so it activates
+// (and navigator.serviceWorker.ready resolves) almost immediately.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));

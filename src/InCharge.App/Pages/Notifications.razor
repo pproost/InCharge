@@ -66,8 +66,16 @@
             return;
         }
 
-        await _module.InvokeVoidAsync("showTestNotification", "InCharge", "Test-melding vanaf de PWA");
-        message = $"Notificatie verstuurd om {DateTime.Now:HH:mm:ss}";
+        message = "Bezig met versturen...";
+        try
+        {
+            await _module.InvokeVoidAsync("showTestNotification", "InCharge", "Test-melding vanaf de PWA");
+            message = $"Notificatie verstuurd om {DateTime.Now:HH:mm:ss}";
+        }
+        catch (JSException ex)
+        {
+            message = $"Kon geen notificatie versturen: {ex.Message}";
+        }
     }
 
     public async ValueTask DisposeAsync()

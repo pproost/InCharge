@@ -18,7 +18,11 @@ export async function showTestNotification(title, body) {
         throw new Error('Service worker wordt niet ondersteund in deze browser.');
     }
 
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await withTimeout(
+        navigator.serviceWorker.ready,
+        8000,
+        'De service worker werd niet op tijd actief. Herlaad de pagina en probeer opnieuw.');
+
     await registration.showNotification(title, {
         body: body,
         icon: 'icon-192.png',
@@ -26,4 +30,11 @@ export async function showTestNotification(title, body) {
         vibrate: [200, 100, 200],
         tag: 'incharge-test'
     });
+}
+
+function withTimeout(promise, timeoutMs, timeoutMessage) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs))
+    ]);
 }
