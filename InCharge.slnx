@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/InCharge.App/InCharge.App.csproj" />
+    <Project Path="src/InCharge.Mobile/InCharge.Mobile.csproj" />
   </Folder>
 </Solution>

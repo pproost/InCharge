@@ -1,0 +1,69 @@
+.activity-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 23, 61, 0.96);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1050;
+    padding: 1.5rem;
+}
+
+.activity-card {
+    text-align: center;
+    color: white;
+    max-width: 20rem;
+    width: 100%;
+}
+
+.activity-phase {
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.phase-move {
+    color: #22c55e;
+}
+
+.phase-rest {
+    color: #60a5fa;
+}
+
+.phase-paused {
+    color: #cbd5e1;
+}
+
+.phase-complete {
+    color: #fbbf24;
+}
+
+.activity-timer {
+    font-size: 4.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    margin: 0.5rem 0;
+}
+
+.activity-progress {
+    font-size: 1.1rem;
+    color: #cbd5e1;
+    margin-bottom: 2rem;
+}
+
+.activity-controls {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.btn-icon {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}

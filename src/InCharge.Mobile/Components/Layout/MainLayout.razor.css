@@ -1,0 +1,31 @@
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.app-header {
+    background-color: #03173d;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+}
+
+.app-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.settings-link {
+    color: white;
+    text-decoration: none;
+    font-size: 1.3rem;
+    line-height: 1;
+}
+
+main {
+    flex: 1;
+    padding: 1rem;
+}
