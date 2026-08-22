@@ -9,7 +9,7 @@
     color: white;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.85rem;
     padding: 0.75rem 1rem;
     /* The template's .status-bar-safe-area trick only kicks in on iOS
        (@supports (-webkit-touch-callout: none)). Android renders this
@@ -19,19 +19,53 @@
     padding-top: max(0.75rem, env(safe-area-inset-top));
 }
 
+.menu-button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+}
+
 .app-title {
     font-weight: 700;
     font-size: 1.1rem;
-    color: white;
-    text-decoration: none;
 }
 
-.settings-link {
-    color: white;
-    text-decoration: none;
-    font-size: 1.3rem;
-    line-height: 1;
+.nav-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1100;
 }
+
+.nav-drawer {
+    background-color: #03173d;
+    width: 75%;
+    max-width: 18rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 1rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+}
+
+    .nav-drawer ::deep .nav-link {
+        color: #d7d7d7;
+        text-decoration: none;
+        padding: 0.85rem 1rem;
+        border-radius: 6px;
+        font-size: 1rem;
+    }
+
+    .nav-drawer ::deep .nav-link.active {
+        background-color: rgba(255, 255, 255, 0.15);
+        color: white;
+        font-weight: 600;
+    }
 
 main {
     flex: 1;

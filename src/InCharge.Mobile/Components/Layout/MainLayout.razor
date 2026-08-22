@@ -2,10 +2,29 @@
 
 <div class="app-shell">
     <header class="app-header">
-        <a href="/" class="app-title" title="Basic Interval" aria-label="Back to Basic Interval">InCharge</a>
-        <a href="settings/notifications" class="settings-link" title="Notification settings" aria-label="Notification settings">⚙</a>
+        <button class="menu-button" @onclick="ToggleMenu" title="Menu" aria-label="Open menu">☰</button>
+        <span class="app-title">InCharge</span>
     </header>
+
+    @if (isMenuOpen)
+    {
+        <div class="nav-overlay" @onclick="CloseMenu">
+            <nav class="nav-drawer" @onclick:stopPropagation="true">
+                <NavLink href="/" Match="NavLinkMatch.All" class="nav-link" @onclick="CloseMenu">Basic Interval</NavLink>
+                <NavLink href="settings/notifications" class="nav-link" @onclick="CloseMenu">Notification settings</NavLink>
+            </nav>
+        </div>
+    }
+
     <main>
         @Body
     </main>
 </div>
+
+@code {
+    private bool isMenuOpen;
+
+    private void ToggleMenu() => isMenuOpen = !isMenuOpen;
+
+    private void CloseMenu() => isMenuOpen = false;
+}
