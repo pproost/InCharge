@@ -1,0 +1,93 @@
+@page "/settings/notifications"
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Notification settings</PageTitle>
+
+<h1>Notification settings</h1>
+
+<p>
+    InCharge uses your browser's notifications to send you cues during an activity
+    (e.g. through a paired smartwatch such as a Fitbit). Notifications must be allowed
+    in <strong>two separate places</strong> before they will come through:
+</p>
+
+<ol>
+    <li>
+        <strong>This site's notification permission</strong> &mdash; grant it when your
+        browser prompts you, or manually via the browser's site settings (the padlock icon
+        next to the address bar &rarr; Permissions &rarr; Notifications).
+    </li>
+    <li>
+        <strong>Your browser app's notification permission at the Android system level</strong>
+        &mdash; e.g. for Chrome: Android Settings &rarr; Apps &rarr; Chrome &rarr; Notifications.
+        On Android 13 and newer, this must be switched on separately, or the browser cannot
+        show any notification at all, regardless of what the site permission says.
+    </li>
+</ol>
+
+<p>Current site permission status: <strong>@permissionStatus</strong></p>
+
+@if (!isSupported)
+{
+    <div class="alert alert-warning">This browser does not support web notifications.</div>
+}
+
+<button class="btn btn-success" @onclick="SendTestNotification" disabled="@(!isSupported || permissionStatus != "granted")">
+    Send test notification
+</button>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <p class="mt-3">@message</p>
+}
+
+@code {
+    private IJSObjectReference? _module;
+    private bool isSupported = true;
+    private string permissionStatus = "unknown";
+    private string? message;
+    private int sendCount;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // The version query string busts the browser's HTTP cache (GitHub Pages
+            // serves static files with a 10-minute max-age) so a redeploy is picked
+            // up immediately instead of silently running stale JS for a while.
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/notifications.js?v=4");
+            isSupported = await _module.InvokeAsync<bool>("isSupported");
+            permissionStatus = await _module.InvokeAsync<string>("getPermission");
+            StateHasChanged();
+        }
+    }
+
+    private async Task SendTestNotification()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        message = "Sending...";
+        try
+        {
+            sendCount++;
+            await _module.InvokeVoidAsync("notify", "InCharge", $"Test notification #{sendCount} at {DateTime.Now:HH:mm:ss}");
+            message = $"Notification #{sendCount} sent at {DateTime.Now:HH:mm:ss}";
+        }
+        catch (JSException ex)
+        {
+            message = $"Could not send notification: {ex.Message}";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.DisposeAsync();
+        }
+    }
+}

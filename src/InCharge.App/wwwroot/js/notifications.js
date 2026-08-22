@@ -6,24 +6,17 @@ export function getPermission() {
     return 'Notification' in window ? Notification.permission : 'unsupported';
 }
 
-export async function requestPermission() {
-    if (!('Notification' in window)) {
-        return 'unsupported';
-    }
-    return await Notification.requestPermission();
-}
-
 let lastTag = null;
 
-export async function showTestNotification(title, body) {
+export async function notify(title, body) {
     if (!('serviceWorker' in navigator)) {
-        throw new Error('Service worker wordt niet ondersteund in deze browser.');
+        throw new Error('Service workers are not supported in this browser.');
     }
 
     const registration = await withTimeout(
         navigator.serviceWorker.ready,
         8000,
-        'De service worker werd niet op tijd actief. Herlaad de pagina en probeer opnieuw.');
+        'The service worker did not become active in time. Reload the page and try again.');
 
     // A shared tag only *updates* the existing notification, which Android does not
     // treat as a new alert: it neither vibrates again nor gets relayed to a paired

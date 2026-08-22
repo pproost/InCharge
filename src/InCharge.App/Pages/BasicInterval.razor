@@ -1,0 +1,381 @@
+@page "/"
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@using System.Text.Json
+
+<PageTitle>Basic Interval</PageTitle>
+
+<h1>Basic Interval</h1>
+
+<p>
+    Set up a simple move/rest interval activity. While it's running, InCharge sends a
+    notification at the start of every phase so you know when to speed up or slow down
+    without having to look at your phone.
+</p>
+
+@if (!isSupported)
+{
+    <div class="alert alert-warning">
+        This browser does not support notifications. Check <a href="settings/notifications">notification settings</a> first.
+    </div>
+}
+else if (permissionStatus != "granted")
+{
+    <div class="alert alert-warning">
+        Notifications aren't allowed yet. Visit <a href="settings/notifications">notification settings</a> before starting an activity.
+    </div>
+}
+
+<div class="row g-3" style="max-width: 480px;">
+    <div class="col-12">
+        <label class="form-label" for="movingDuration">Moving duration</label>
+        <input id="movingDuration" type="number" min="1" class="form-control"
+               @bind="MovingDuration" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+    </div>
+    <div class="col-12">
+        <label class="form-label" for="restingDuration">Resting duration</label>
+        <input id="restingDuration" type="number" min="1" class="form-control"
+               @bind="RestingDuration" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+    </div>
+    <div class="col-12">
+        <label class="form-label" for="repeats">Number of repeats</label>
+        <input id="repeats" type="number" min="1" class="form-control"
+               @bind="Repeats" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+    </div>
+    <div class="col-12">
+        <label class="form-label d-block">Duration unit</label>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="unit" id="unitMinutes"
+                   checked="@UseMinutes" disabled="@IsConfigLocked" @onchange="() => SetUnitAsync(true)" />
+            <label class="form-check-label" for="unitMinutes">Minutes</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="unit" id="unitSeconds"
+                   checked="@(!UseMinutes)" disabled="@IsConfigLocked" @onchange="() => SetUnitAsync(false)" />
+            <label class="form-check-label" for="unitSeconds">Seconds</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <label class="form-label d-block">End the activity with</label>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="endWith" id="endWithRest"
+                   checked="@EndWithRest" disabled="@IsConfigLocked" @onchange="() => SetEndWithAsync(true)" />
+            <label class="form-check-label" for="endWithRest">Rest</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="endWith" id="endWithMove"
+                   checked="@(!EndWithRest)" disabled="@IsConfigLocked" @onchange="() => SetEndWithAsync(false)" />
+            <label class="form-check-label" for="endWithMove">Movement</label>
+        </div>
+    </div>
+</div>
+
+<div class="mt-4">
+    <button class="btn btn-primary" @onclick="StartActivity" disabled="@isRunning">Start activity</button>
+    <button class="btn btn-secondary ms-2" @onclick="PauseActivity" disabled="@(!isRunning)">Pause</button>
+    <button class="btn btn-outline-danger ms-2" @onclick="ResetActivity" disabled="@(!HasStarted)">Reset activity</button>
+</div>
+
+@if (HasStarted)
+{
+    <div class="mt-4">
+        <h4>@StatusHeading</h4>
+        <p>@StatusDetail</p>
+    </div>
+}
+
+@code {
+    private const string StorageKey = "incharge.basicInterval.settings";
+
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _wakeLockModule;
+    private bool isSupported = true;
+    private string permissionStatus = "unknown";
+
+    private int MovingDuration { get; set; } = 1;
+    private int RestingDuration { get; set; } = 1;
+    private int Repeats { get; set; } = 4;
+    private bool UseMinutes { get; set; } = true;
+    private bool EndWithRest { get; set; } = true;
+
+    private List<Phase> phases = new();
+    private int currentPhaseIndex = -1;
+    private int remainingSeconds;
+    private bool isRunning;
+    private bool isPaused;
+    private bool isCompleted;
+    private CancellationTokenSource? _cts;
+
+    private bool HasStarted => currentPhaseIndex >= 0;
+    private bool IsConfigLocked => HasStarted;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // The version query string busts the browser's HTTP cache (GitHub Pages
+            // serves static files with a 10-minute max-age) so a redeploy is picked
+            // up immediately instead of silently running stale JS for a while.
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/notifications.js?v=4");
+            _wakeLockModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/wakelock.js?v=1");
+            isSupported = await _module.InvokeAsync<bool>("isSupported");
+            permissionStatus = await _module.InvokeAsync<string>("getPermission");
+            await LoadSettingsAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        var json = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        if (string.IsNullOrEmpty(json))
+        {
+            return;
+        }
+
+        try
+        {
+            var saved = JsonSerializer.Deserialize<IntervalSettings>(json);
+            if (saved is not null)
+            {
+                MovingDuration = saved.MovingDuration;
+                RestingDuration = saved.RestingDuration;
+                Repeats = saved.Repeats;
+                UseMinutes = saved.UseMinutes;
+                EndWithRest = saved.EndWithRest;
+            }
+        }
+        catch (JsonException)
+        {
+            // Ignore corrupt or outdated saved settings and keep the defaults.
+        }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        var settings = new IntervalSettings
+        {
+            MovingDuration = MovingDuration,
+            RestingDuration = RestingDuration,
+            Repeats = Repeats,
+            UseMinutes = UseMinutes,
+            EndWithRest = EndWithRest
+        };
+        var json = JsonSerializer.Serialize(settings);
+        await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, json);
+    }
+
+    private Task SetUnitAsync(bool useMinutes)
+    {
+        UseMinutes = useMinutes;
+        return SaveSettingsAsync();
+    }
+
+    private Task SetEndWithAsync(bool endWithRest)
+    {
+        EndWithRest = endWithRest;
+        return SaveSettingsAsync();
+    }
+
+    private int UnitToSeconds(int value) => Math.Max(1, value) * (UseMinutes ? 60 : 1);
+
+    private List<Phase> BuildPhases()
+    {
+        var repeats = Math.Max(1, Repeats);
+        var list = new List<Phase>();
+        for (var i = 1; i <= repeats; i++)
+        {
+            list.Add(new Phase(PhaseType.Move, i, UnitToSeconds(MovingDuration)));
+            var isLast = i == repeats;
+            if (!isLast || EndWithRest)
+            {
+                list.Add(new Phase(PhaseType.Rest, i, UnitToSeconds(RestingDuration)));
+            }
+        }
+        return list;
+    }
+
+    private async Task StartActivity()
+    {
+        await RequestWakeLockAsync();
+
+        if (isPaused)
+        {
+            isPaused = false;
+            isRunning = true;
+            RunLoop();
+            return;
+        }
+
+        await SaveSettingsAsync();
+        phases = BuildPhases();
+        currentPhaseIndex = -1;
+        isCompleted = false;
+        isRunning = true;
+        await AdvancePhaseAsync();
+        RunLoop();
+    }
+
+    private void PauseActivity()
+    {
+        _cts?.Cancel();
+        isRunning = false;
+        isPaused = true;
+        _ = NotifyAsync("InCharge", "Activity paused.");
+        _ = ReleaseWakeLockAsync();
+    }
+
+    private void ResetActivity()
+    {
+        _cts?.Cancel();
+        phases = new List<Phase>();
+        currentPhaseIndex = -1;
+        remainingSeconds = 0;
+        isRunning = false;
+        isPaused = false;
+        isCompleted = false;
+        _ = ReleaseWakeLockAsync();
+    }
+
+    private async Task RequestWakeLockAsync()
+    {
+        if (_wakeLockModule is not null)
+        {
+            await _wakeLockModule.InvokeAsync<bool>("requestWakeLock");
+        }
+    }
+
+    private async Task ReleaseWakeLockAsync()
+    {
+        if (_wakeLockModule is not null)
+        {
+            await _wakeLockModule.InvokeVoidAsync("releaseWakeLock");
+        }
+    }
+
+    private void RunLoop()
+    {
+        _cts = new CancellationTokenSource();
+        _ = RunTimerLoopAsync(_cts.Token);
+    }
+
+    private async Task RunTimerLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                remainingSeconds--;
+                if (remainingSeconds <= 0)
+                {
+                    await AdvancePhaseAsync();
+                    if (isCompleted)
+                    {
+                        break;
+                    }
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the activity is paused or reset.
+        }
+    }
+
+    private async Task AdvancePhaseAsync()
+    {
+        currentPhaseIndex++;
+        if (currentPhaseIndex >= phases.Count)
+        {
+            isCompleted = true;
+            isRunning = false;
+            await NotifyAsync("InCharge", "Activity complete. Great job!");
+            await ReleaseWakeLockAsync();
+            return;
+        }
+
+        var phase = phases[currentPhaseIndex];
+        remainingSeconds = phase.DurationSeconds;
+        var label = phase.Type == PhaseType.Move
+            ? $"Start to move {phase.RepeatNumber}/{Repeats}"
+            : $"Slow down {phase.RepeatNumber}/{Repeats}";
+        await NotifyAsync("InCharge", label);
+    }
+
+    private async Task NotifyAsync(string title, string body)
+    {
+        if (_module is null || permissionStatus != "granted")
+        {
+            return;
+        }
+
+        try
+        {
+            await _module.InvokeVoidAsync("notify", title, body);
+        }
+        catch (JSException)
+        {
+            // Not critical mid-activity: the on-screen status keeps updating regardless.
+        }
+    }
+
+    private string StatusHeading => isCompleted
+        ? "Activity complete"
+        : isPaused
+            ? "Paused"
+            : currentPhaseIndex >= 0 && currentPhaseIndex < phases.Count
+                ? (phases[currentPhaseIndex].Type == PhaseType.Move ? "Move!" : "Rest")
+                : "Idle";
+
+    private string StatusDetail
+    {
+        get
+        {
+            if (isCompleted)
+            {
+                return "You finished the activity.";
+            }
+
+            if (currentPhaseIndex < 0 || currentPhaseIndex >= phases.Count)
+            {
+                return string.Empty;
+            }
+
+            var phase = phases[currentPhaseIndex];
+            return $"Repeat {phase.RepeatNumber}/{Repeats} — {remainingSeconds}s left";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        await ReleaseWakeLockAsync();
+        if (_module is not null)
+        {
+            await _module.DisposeAsync();
+        }
+        if (_wakeLockModule is not null)
+        {
+            await _wakeLockModule.DisposeAsync();
+        }
+    }
+
+    private enum PhaseType
+    {
+        Move,
+        Rest
+    }
+
+    private record Phase(PhaseType Type, int RepeatNumber, int DurationSeconds);
+
+    private class IntervalSettings
+    {
+        public int MovingDuration { get; set; }
+        public int RestingDuration { get; set; }
+        public int Repeats { get; set; }
+        public bool UseMinutes { get; set; }
+        public bool EndWithRest { get; set; }
+    }
+}
