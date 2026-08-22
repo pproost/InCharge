@@ -11,6 +11,12 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
+    /* The template's .status-bar-safe-area trick only kicks in on iOS
+       (@supports (-webkit-touch-callout: none)). Android renders this
+       header edge-to-edge under the status bar without this, so add
+       the safe-area inset directly here instead - env() is 0 wherever
+       it isn't applicable, so this is harmless on iOS too. */
+    padding-top: max(0.75rem, env(safe-area-inset-top));
 }
 
 .app-title {
