@@ -1,0 +1,439 @@
+@page "/advanced"
+@using InCharge.Mobile.Services
+@inject NotificationService Notifier
+@inject AppSettingsService AppSettings
+@inject AdvancedSessionService Sessions
+@implements IAsyncDisposable
+
+<PageTitle>Advanced Interval</PageTitle>
+
+@if (mode == Mode.List)
+{
+    <h1>Advanced Interval</h1>
+
+    <p>
+        Build a custom sequence of move/rest blocks with their own durations, save it
+        under a name, and run it whenever you like.
+    </p>
+
+    @if (!notificationsEnabled)
+    {
+        <div class="alert alert-warning">
+            Notifications aren't enabled yet. Visit <a href="settings">settings</a> before starting an activity.
+        </div>
+    }
+
+    <button class="btn btn-primary mb-3" @onclick="StartNewSession">
+        @PlusIcon <span>New session</span>
+    </button>
+
+    @if (sessions.Count == 0)
+    {
+        <p class="text-muted">No saved sessions yet.</p>
+    }
+
+    @foreach (var session in sessions)
+    {
+        <div class="card mb-2">
+            <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div>
+                    <strong>@session.Name</strong>
+                    <div class="small text-muted">@session.Blocks.Count block(s) &middot; @FormatSessionDuration(session)</div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-success btn-sm" @onclick="() => RunSession(session)" title="Start" aria-label="Start">@PlayIcon</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => EditSession(session)" title="Edit" aria-label="Edit">@EditIcon</button>
+                    <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteSession(session)" title="Delete" aria-label="Delete">@DeleteIcon</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+else if (mode == Mode.Edit)
+{
+    <h1>@(editingSessionId is null ? "New session" : "Edit session")</h1>
+
+    <div class="mb-3" style="max-width: 480px;">
+        <label class="form-label" for="sessionName">Name</label>
+        <input id="sessionName" class="form-control" @bind="editName" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label d-block">Duration unit for this session</label>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="editUnit" id="editUnitMinutes"
+                   checked="@editUseMinutes" @onchange="() => editUseMinutes = true" />
+            <label class="form-check-label" for="editUnitMinutes">Minutes</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="editUnit" id="editUnitSeconds"
+                   checked="@(!editUseMinutes)" @onchange="() => editUseMinutes = false" />
+            <label class="form-check-label" for="editUnitSeconds">Seconds</label>
+        </div>
+    </div>
+
+    @for (var i = 0; i < editBlocks.Count; i++)
+    {
+        var index = i;
+        var block = editBlocks[index];
+        <div class="card mb-2">
+            <div class="card-body d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-bold" style="width: 1.5rem;">@(index + 1)</span>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="radio" name="@($"blockType{index}")" id="@($"blockMove{index}")"
+                           checked="@block.IsMove" @onchange="() => block.IsMove = true" />
+                    <label class="form-check-label" for="@($"blockMove{index}")">Move</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="radio" name="@($"blockType{index}")" id="@($"blockRest{index}")"
+                           checked="@(!block.IsMove)" @onchange="() => block.IsMove = false" />
+                    <label class="form-check-label" for="@($"blockRest{index}")">Rest</label>
+                </div>
+                @if (editUseMinutes)
+                {
+                    <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
+                           value="@(block.DurationSeconds / 60)" @onchange="e => SetBlockMinutes(block, e.Value)" />
+                    <span>min</span>
+                    <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
+                           value="@(block.DurationSeconds % 60)" @onchange="e => SetBlockSeconds(block, e.Value)" />
+                    <span>sec</span>
+                }
+                else
+                {
+                    <input type="number" min="1" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           value="@block.DurationSeconds" @onchange="e => SetBlockWholeSeconds(block, e.Value)" />
+                    <span>sec</span>
+                }
+                <button class="btn btn-outline-danger btn-sm ms-auto" @onclick="() => editBlocks.RemoveAt(index)" title="Remove block" aria-label="Remove block">
+                    @DeleteIcon
+                </button>
+            </div>
+        </div>
+    }
+
+    <button class="btn btn-outline-primary mb-3" @onclick="AddBlock">
+        @PlusIcon <span>Add block</span>
+    </button>
+
+    @if (!string.IsNullOrEmpty(editError))
+    {
+        <div class="alert alert-danger">@editError</div>
+    }
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" @onclick="SaveSession">Save</button>
+        <button class="btn btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
+    </div>
+}
+else if (mode == Mode.Running && runningSession is not null)
+{
+    <h1>@runningSession.Name</h1>
+
+    <div class="activity-overlay">
+        <div class="activity-card">
+            <div class="activity-phase @PhaseColorClass">@StatusHeading</div>
+            @if (!string.IsNullOrEmpty(FormattedRemaining))
+            {
+                <div class="activity-timer">@FormattedRemaining</div>
+            }
+            <div class="activity-progress">@StatusDetail</div>
+            <div class="activity-controls">
+                @if (isRunning)
+                {
+                    <button class="btn btn-light btn-icon" @onclick="PauseActivity" title="Pause" aria-label="Pause">
+                        @PauseIcon
+                    </button>
+                }
+                else if (isPaused)
+                {
+                    <button class="btn btn-light btn-icon" @onclick="ResumeActivity" title="Resume" aria-label="Resume">
+                        @PlayIcon
+                    </button>
+                }
+                <button class="btn btn-outline-light btn-icon" @onclick="StopRun" title="Stop" aria-label="Stop">
+                    @ResetIcon
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private enum Mode
+    {
+        List,
+        Edit,
+        Running
+    }
+
+    private Mode mode = Mode.List;
+    private bool notificationsEnabled;
+    private List<AdvancedSession> sessions = new();
+
+    // Editor state
+    private string? editingSessionId;
+    private string editName = "";
+    private bool editUseMinutes = true;
+    private List<IntervalBlock> editBlocks = new();
+    private string? editError;
+
+    // Running state
+    private AdvancedSession? runningSession;
+    private int currentBlockIndex = -1;
+    private int remainingSeconds;
+    private int totalDurationSeconds;
+    private bool isRunning;
+    private bool isPaused;
+    private bool isCompleted;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        notificationsEnabled = await Notifier.AreNotificationsEnabledAsync();
+        sessions = Sessions.LoadAll();
+    }
+
+    private void StartNewSession()
+    {
+        editingSessionId = null;
+        editName = "";
+        editUseMinutes = true;
+        editBlocks = new List<IntervalBlock> { new() { IsMove = true, DurationSeconds = 60 } };
+        editError = null;
+        mode = Mode.Edit;
+    }
+
+    private void EditSession(AdvancedSession session)
+    {
+        editingSessionId = session.Id;
+        editName = session.Name;
+        editUseMinutes = session.UseMinutes;
+        editBlocks = session.Blocks.Select(b => new IntervalBlock { IsMove = b.IsMove, DurationSeconds = b.DurationSeconds }).ToList();
+        editError = null;
+        mode = Mode.Edit;
+    }
+
+    private void AddBlock()
+    {
+        var last = editBlocks.LastOrDefault();
+        editBlocks.Add(new IntervalBlock { IsMove = last is null || !last.IsMove, DurationSeconds = last?.DurationSeconds ?? 60 });
+    }
+
+    private static void SetBlockMinutes(IntervalBlock block, object? value)
+    {
+        var minutes = ParseNonNegativeInt(value);
+        block.DurationSeconds = minutes * 60 + block.DurationSeconds % 60;
+    }
+
+    private static void SetBlockSeconds(IntervalBlock block, object? value)
+    {
+        var seconds = Math.Clamp(ParseNonNegativeInt(value), 0, 59);
+        block.DurationSeconds = block.DurationSeconds / 60 * 60 + seconds;
+    }
+
+    private static void SetBlockWholeSeconds(IntervalBlock block, object? value)
+    {
+        block.DurationSeconds = Math.Max(1, ParseNonNegativeInt(value));
+    }
+
+    private static int ParseNonNegativeInt(object? value) =>
+        int.TryParse(value?.ToString(), out var parsed) ? Math.Max(0, parsed) : 0;
+
+    private void SaveSession()
+    {
+        if (string.IsNullOrWhiteSpace(editName))
+        {
+            editError = "Give this session a name.";
+            return;
+        }
+
+        if (editBlocks.Count == 0)
+        {
+            editError = "Add at least one block.";
+            return;
+        }
+
+        if (editBlocks.Any(b => b.DurationSeconds <= 0))
+        {
+            editError = "Every block needs a duration of at least 1 second.";
+            return;
+        }
+
+        var session = editingSessionId is null
+            ? new AdvancedSession()
+            : sessions.First(s => s.Id == editingSessionId);
+
+        session.Name = editName.Trim();
+        session.UseMinutes = editUseMinutes;
+        session.Blocks = editBlocks;
+
+        if (editingSessionId is null)
+        {
+            sessions.Add(session);
+        }
+
+        Sessions.SaveAll(sessions);
+        editError = null;
+        mode = Mode.List;
+    }
+
+    private void CancelEdit()
+    {
+        editError = null;
+        mode = Mode.List;
+    }
+
+    private void DeleteSession(AdvancedSession session)
+    {
+        sessions.Remove(session);
+        Sessions.SaveAll(sessions);
+    }
+
+    private string FormatSessionDuration(AdvancedSession session) => FormatSeconds(session.Blocks.Sum(b => b.DurationSeconds));
+
+    private async Task RunSession(AdvancedSession session)
+    {
+        runningSession = session;
+        currentBlockIndex = -1;
+        isCompleted = false;
+        isRunning = true;
+        isPaused = false;
+        totalDurationSeconds = session.Blocks.Sum(b => b.DurationSeconds);
+        mode = Mode.Running;
+        await AdvanceBlockAsync();
+        RunLoop();
+    }
+
+    private void PauseActivity()
+    {
+        _cts?.Cancel();
+        isRunning = false;
+        isPaused = true;
+        _ = Notifier.NotifyAsync("InCharge", "Activity paused.");
+    }
+
+    private void ResumeActivity()
+    {
+        isPaused = false;
+        isRunning = true;
+        RunLoop();
+    }
+
+    private void StopRun()
+    {
+        _cts?.Cancel();
+        mode = Mode.List;
+        runningSession = null;
+        isRunning = false;
+        isPaused = false;
+        isCompleted = false;
+    }
+
+    private void RunLoop()
+    {
+        _cts = new CancellationTokenSource();
+        _ = RunTimerLoopAsync(_cts.Token);
+    }
+
+    private async Task RunTimerLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                remainingSeconds--;
+                if (remainingSeconds <= 0)
+                {
+                    await AdvanceBlockAsync();
+                }
+                await InvokeAsync(StateHasChanged);
+                if (isCompleted)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the activity is paused or stopped.
+        }
+    }
+
+    private async Task AdvanceBlockAsync()
+    {
+        currentBlockIndex++;
+        if (runningSession is null || currentBlockIndex >= runningSession.Blocks.Count)
+        {
+            isCompleted = true;
+            isRunning = false;
+            await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
+            return;
+        }
+
+        var block = runningSession.Blocks[currentBlockIndex];
+        remainingSeconds = block.DurationSeconds;
+        var label = block.IsMove
+            ? $"Start to move {currentBlockIndex + 1}/{runningSession.Blocks.Count}"
+            : $"Slow down {currentBlockIndex + 1}/{runningSession.Blocks.Count}";
+        await Notifier.NotifyAsync("InCharge", label);
+    }
+
+    private RenderFragment PlayIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5v11l10-5.5-10-5.5z" /></svg>;
+
+    private RenderFragment PauseIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5h3v11H4v-11zm5 0h3v11H9v-11z" /></svg>;
+
+    private RenderFragment ResetIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" /><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" /></svg>;
+
+    private RenderFragment EditIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z" /></svg>;
+
+    private RenderFragment DeleteIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" /><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" /></svg>;
+
+    private RenderFragment PlusIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z" /></svg>;
+
+    private string PhaseColorClass => isCompleted
+        ? "phase-complete"
+        : isPaused
+            ? "phase-paused"
+            : runningSession is not null && currentBlockIndex >= 0 && currentBlockIndex < runningSession.Blocks.Count
+                ? (runningSession.Blocks[currentBlockIndex].IsMove ? "phase-move" : "phase-rest")
+                : "";
+
+    private string FormattedRemaining => isCompleted
+        ? (AppSettings.Load().ShowDurationOnComplete ? FormatSeconds(totalDurationSeconds) : string.Empty)
+        : FormatSeconds(Math.Max(0, remainingSeconds));
+
+    private static string FormatSeconds(int seconds) => TimeSpan.FromSeconds(seconds).ToString(@"m\:ss");
+
+    private string StatusHeading => isCompleted
+        ? "Activity complete"
+        : isPaused
+            ? "Paused"
+            : runningSession is not null && currentBlockIndex >= 0 && currentBlockIndex < runningSession.Blocks.Count
+                ? (runningSession.Blocks[currentBlockIndex].IsMove ? "Move!" : "Rest")
+                : "Idle";
+
+    private string StatusDetail
+    {
+        get
+        {
+            if (isCompleted)
+            {
+                return "You finished the activity.";
+            }
+
+            if (runningSession is null || currentBlockIndex < 0 || currentBlockIndex >= runningSession.Blocks.Count)
+            {
+                return string.Empty;
+            }
+
+            return $"Block {currentBlockIndex + 1} / {runningSession.Blocks.Count}";
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        return ValueTask.CompletedTask;
+    }
+}

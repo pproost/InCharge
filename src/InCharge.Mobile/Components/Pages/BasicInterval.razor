@@ -2,6 +2,7 @@
 @using System.Text.Json
 @using InCharge.Mobile.Services
 @inject NotificationService Notifier
+@inject AppSettingsService AppSettings
 @implements IAsyncDisposable
 
 <PageTitle>Basic Interval</PageTitle>
@@ -17,24 +18,52 @@
 @if (!notificationsEnabled)
 {
     <div class="alert alert-warning">
-        Notifications aren't enabled yet. Visit <a href="settings/notifications">notification settings</a> before starting an activity.
+        Notifications aren't enabled yet. Visit <a href="settings">settings</a> before starting an activity.
     </div>
 }
 
 <div class="row g-3" style="max-width: 480px;">
     <div class="col-12">
-        <label class="form-label" for="movingDuration">Moving duration</label>
-        <input id="movingDuration" type="number" min="1" class="form-control"
-               @bind="MovingDuration" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+        <label class="form-label">Moving duration</label>
+        @if (UseMinutes)
+        {
+            <div class="d-flex align-items-center gap-2">
+                <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                       @bind="MovingMinutesPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+                <span>min</span>
+                <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                       @bind="MovingSecondsPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+                <span>sec</span>
+            </div>
+        }
+        else
+        {
+            <input type="number" min="1" step="1" inputmode="numeric" class="form-control"
+                   @bind="MovingDurationSeconds" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+        }
     </div>
     <div class="col-12">
-        <label class="form-label" for="restingDuration">Resting duration</label>
-        <input id="restingDuration" type="number" min="1" class="form-control"
-               @bind="RestingDuration" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+        <label class="form-label">Resting duration</label>
+        @if (UseMinutes)
+        {
+            <div class="d-flex align-items-center gap-2">
+                <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                       @bind="RestingMinutesPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+                <span>min</span>
+                <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                       @bind="RestingSecondsPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+                <span>sec</span>
+            </div>
+        }
+        else
+        {
+            <input type="number" min="1" step="1" inputmode="numeric" class="form-control"
+                   @bind="RestingDurationSeconds" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+        }
     </div>
     <div class="col-12">
         <label class="form-label" for="repeats">Number of repeats</label>
-        <input id="repeats" type="number" min="1" class="form-control"
+        <input id="repeats" type="number" min="1" step="1" inputmode="numeric" class="form-control"
                @bind="Repeats" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
     </div>
     <div class="col-12">
@@ -67,15 +96,9 @@
 
 @if (!HasStarted)
 {
-    <div class="mt-4 d-flex flex-wrap gap-2">
-        <button class="btn btn-primary" @onclick="StartActivity" disabled="@isRunning" title="Start activity" aria-label="Start activity">
+    <div class="mt-4">
+        <button class="btn btn-primary" @onclick="StartActivity" title="Start activity" aria-label="Start activity">
             @PlayIcon <span>Start activity</span>
-        </button>
-        <button class="btn btn-secondary" disabled title="Pause" aria-label="Pause">
-            @PauseIcon
-        </button>
-        <button class="btn btn-outline-danger" disabled title="Reset activity" aria-label="Reset activity">
-            @ResetIcon
         </button>
     </div>
 }
@@ -85,7 +108,10 @@
     <div class="activity-overlay">
         <div class="activity-card">
             <div class="activity-phase @PhaseColorClass">@StatusHeading</div>
-            <div class="activity-timer">@FormattedRemaining</div>
+            @if (!string.IsNullOrEmpty(FormattedRemaining))
+            {
+                <div class="activity-timer">@FormattedRemaining</div>
+            }
             <div class="activity-progress">@StatusDetail</div>
             <div class="activity-controls">
                 @if (isRunning)
@@ -113,13 +139,38 @@
 
     private bool notificationsEnabled;
 
-    private int MovingDuration { get; set; } = 1;
-    private int RestingDuration { get; set; } = 1;
+    private int MovingDurationSeconds { get; set; } = 60;
+    private int RestingDurationSeconds { get; set; } = 60;
     private int Repeats { get; set; } = 4;
     private bool UseMinutes { get; set; } = true;
     private bool EndWithRest { get; set; } = true;
 
+    private int MovingMinutesPart
+    {
+        get => MovingDurationSeconds / 60;
+        set => MovingDurationSeconds = value * 60 + MovingDurationSeconds % 60;
+    }
+
+    private int MovingSecondsPart
+    {
+        get => MovingDurationSeconds % 60;
+        set => MovingDurationSeconds = MovingDurationSeconds / 60 * 60 + Math.Clamp(value, 0, 59);
+    }
+
+    private int RestingMinutesPart
+    {
+        get => RestingDurationSeconds / 60;
+        set => RestingDurationSeconds = value * 60 + RestingDurationSeconds % 60;
+    }
+
+    private int RestingSecondsPart
+    {
+        get => RestingDurationSeconds % 60;
+        set => RestingDurationSeconds = RestingDurationSeconds / 60 * 60 + Math.Clamp(value, 0, 59);
+    }
+
     private List<Phase> phases = new();
+    private int totalDurationSeconds;
     private int currentPhaseIndex = -1;
     private int remainingSeconds;
     private bool isRunning;
@@ -149,8 +200,8 @@
             var saved = JsonSerializer.Deserialize<IntervalSettings>(json);
             if (saved is not null)
             {
-                MovingDuration = saved.MovingDuration;
-                RestingDuration = saved.RestingDuration;
+                MovingDurationSeconds = saved.MovingDurationSeconds;
+                RestingDurationSeconds = saved.RestingDurationSeconds;
                 Repeats = saved.Repeats;
                 UseMinutes = saved.UseMinutes;
                 EndWithRest = saved.EndWithRest;
@@ -166,8 +217,8 @@
     {
         var settings = new IntervalSettings
         {
-            MovingDuration = MovingDuration,
-            RestingDuration = RestingDuration,
+            MovingDurationSeconds = MovingDurationSeconds,
+            RestingDurationSeconds = RestingDurationSeconds,
             Repeats = Repeats,
             UseMinutes = UseMinutes,
             EndWithRest = EndWithRest
@@ -188,19 +239,19 @@
         return SaveSettingsAsync();
     }
 
-    private int UnitToSeconds(int value) => Math.Max(1, value) * (UseMinutes ? 60 : 1);
-
     private List<Phase> BuildPhases()
     {
         var repeats = Math.Max(1, Repeats);
+        var moveSeconds = Math.Max(1, MovingDurationSeconds);
+        var restSeconds = Math.Max(1, RestingDurationSeconds);
         var list = new List<Phase>();
         for (var i = 1; i <= repeats; i++)
         {
-            list.Add(new Phase(PhaseType.Move, i, UnitToSeconds(MovingDuration)));
+            list.Add(new Phase(PhaseType.Move, i, moveSeconds));
             var isLast = i == repeats;
             if (!isLast || EndWithRest)
             {
-                list.Add(new Phase(PhaseType.Rest, i, UnitToSeconds(RestingDuration)));
+                list.Add(new Phase(PhaseType.Rest, i, restSeconds));
             }
         }
         return list;
@@ -218,6 +269,7 @@
 
         await SaveSettingsAsync();
         phases = BuildPhases();
+        totalDurationSeconds = phases.Sum(p => p.DurationSeconds);
         currentPhaseIndex = -1;
         isCompleted = false;
         isRunning = true;
@@ -308,7 +360,11 @@
                 ? (phases[currentPhaseIndex].Type == PhaseType.Move ? "phase-move" : "phase-rest")
                 : "";
 
-    private string FormattedRemaining => TimeSpan.FromSeconds(Math.Max(0, remainingSeconds)).ToString(@"m\:ss");
+    private string FormattedRemaining => isCompleted
+        ? (AppSettings.Load().ShowDurationOnComplete ? FormatSeconds(totalDurationSeconds) : string.Empty)
+        : FormatSeconds(Math.Max(0, remainingSeconds));
+
+    private static string FormatSeconds(int seconds) => TimeSpan.FromSeconds(seconds).ToString(@"m\:ss");
 
     private string StatusHeading => isCompleted
         ? "Activity complete"
@@ -353,8 +409,8 @@
 
     private class IntervalSettings
     {
-        public int MovingDuration { get; set; }
-        public int RestingDuration { get; set; }
+        public int MovingDurationSeconds { get; set; }
+        public int RestingDurationSeconds { get; set; }
         public int Repeats { get; set; }
         public bool UseMinutes { get; set; }
         public bool EndWithRest { get; set; }

@@ -11,7 +11,8 @@
         <div class="nav-overlay" @onclick="CloseMenu">
             <nav class="nav-drawer" @onclick:stopPropagation="true">
                 <NavLink href="/" Match="NavLinkMatch.All" class="nav-link" @onclick="CloseMenu">Basic Interval</NavLink>
-                <NavLink href="settings/notifications" class="nav-link" @onclick="CloseMenu">Notification settings</NavLink>
+                <NavLink href="advanced" class="nav-link" @onclick="CloseMenu">Advanced Interval</NavLink>
+                <NavLink href="settings" class="nav-link" @onclick="CloseMenu">Settings</NavLink>
             </nav>
         </div>
     }
