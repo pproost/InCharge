@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "incharge-app",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/InCharge.App", "--urls", "http://localhost:5052"],
+      "port": 5052
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/InCharge.App/InCharge.App.csproj" />
+  </Folder>
+</Solution>

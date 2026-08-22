@@ -1,0 +1,80 @@
+@page "/notificaties"
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Notificatie test</PageTitle>
+
+<h1>Notificatie test</h1>
+
+<p>
+    Test hier of meldingen van deze PWA doorkomen op je Android-toestel. Als dit werkt,
+    verschijnt InCharge apart in de lijst van apps waarvoor je meldingen naar je Fitbit
+    Charge 6 kan doorsturen.
+</p>
+
+<p>Status toestemming: <strong>@permissionStatus</strong></p>
+
+@if (!isSupported)
+{
+    <div class="alert alert-warning">Deze browser ondersteunt geen web-notificaties.</div>
+}
+
+<button class="btn btn-primary" @onclick="RequestPermission" disabled="@(!isSupported)">
+    Vraag toestemming
+</button>
+
+<button class="btn btn-success ms-2" @onclick="SendTestNotification" disabled="@(!isSupported || permissionStatus != "granted")">
+    Stuur test-notificatie
+</button>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <p class="mt-3">@message</p>
+}
+
+@code {
+    private IJSObjectReference? _module;
+    private bool isSupported = true;
+    private string permissionStatus = "onbekend";
+    private string? message;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/notifications.js");
+            isSupported = await _module.InvokeAsync<bool>("isSupported");
+            permissionStatus = await _module.InvokeAsync<string>("getPermission");
+            StateHasChanged();
+        }
+    }
+
+    private async Task RequestPermission()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        permissionStatus = await _module.InvokeAsync<string>("requestPermission");
+    }
+
+    private async Task SendTestNotification()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        await _module.InvokeVoidAsync("showTestNotification", "InCharge", "Test-melding vanaf de PWA");
+        message = $"Notificatie verstuurd om {DateTime.Now:HH:mm:ss}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.DisposeAsync();
+        }
+    }
+}
