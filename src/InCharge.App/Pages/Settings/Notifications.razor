@@ -6,6 +6,27 @@
 
 <h1>Notification settings</h1>
 
+<div class="card mb-4">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div>
+            <div class="text-uppercase small text-muted">Site permission status</div>
+            <div class="fs-3 fw-bold @StatusColorClass">@permissionStatus</div>
+        </div>
+        <button class="btn btn-success btn-lg" @onclick="SendTestNotification" disabled="@(!isSupported || permissionStatus != "granted")">
+            Send test notification
+        </button>
+    </div>
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="card-footer">@message</div>
+    }
+</div>
+
+@if (!isSupported)
+{
+    <div class="alert alert-warning">This browser does not support web notifications.</div>
+}
+
 <p>
     InCharge uses your browser's notifications to send you cues during an activity
     (e.g. through a paired smartwatch such as a Fitbit). Notifications must be allowed
@@ -26,28 +47,19 @@
     </li>
 </ol>
 
-<p>Current site permission status: <strong>@permissionStatus</strong></p>
-
-@if (!isSupported)
-{
-    <div class="alert alert-warning">This browser does not support web notifications.</div>
-}
-
-<button class="btn btn-success" @onclick="SendTestNotification" disabled="@(!isSupported || permissionStatus != "granted")">
-    Send test notification
-</button>
-
-@if (!string.IsNullOrEmpty(message))
-{
-    <p class="mt-3">@message</p>
-}
-
 @code {
     private IJSObjectReference? _module;
     private bool isSupported = true;
     private string permissionStatus = "unknown";
     private string? message;
     private int sendCount;
+
+    private string StatusColorClass => permissionStatus switch
+    {
+        "granted" => "text-success",
+        "denied" => "text-danger",
+        _ => "text-warning"
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
