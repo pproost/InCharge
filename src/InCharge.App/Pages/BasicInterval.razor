@@ -299,12 +299,12 @@ else if (permissionStatus != "granted")
                 if (remainingSeconds <= 0)
                 {
                     await AdvancePhaseAsync();
-                    if (isCompleted)
-                    {
-                        break;
-                    }
                 }
                 await InvokeAsync(StateHasChanged);
+                if (isCompleted)
+                {
+                    break;
+                }
             }
         }
         catch (OperationCanceledException)
