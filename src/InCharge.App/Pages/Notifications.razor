@@ -37,12 +37,16 @@
     private bool isSupported = true;
     private string permissionStatus = "onbekend";
     private string? message;
+    private int sendCount;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/notifications.js");
+            // The version query string busts the browser's HTTP cache (GitHub Pages
+            // serves static files with a 10-minute max-age) so a redeploy is picked
+            // up immediately instead of silently running stale JS for a while.
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/notifications.js?v=4");
             isSupported = await _module.InvokeAsync<bool>("isSupported");
             permissionStatus = await _module.InvokeAsync<string>("getPermission");
             StateHasChanged();
@@ -69,8 +73,9 @@
         message = "Bezig met versturen...";
         try
         {
-            await _module.InvokeVoidAsync("showTestNotification", "InCharge", "Test-melding vanaf de PWA");
-            message = $"Notificatie verstuurd om {DateTime.Now:HH:mm:ss}";
+            sendCount++;
+            await _module.InvokeVoidAsync("showTestNotification", "InCharge", $"Test-melding #{sendCount} om {DateTime.Now:HH:mm:ss}");
+            message = $"Notificatie #{sendCount} verstuurd om {DateTime.Now:HH:mm:ss}";
         }
         catch (JSException ex)
         {
