@@ -333,7 +333,15 @@
             list.Add(new Phase(PhaseType.Move, i, moveSeconds));
             list.Add(new Phase(PhaseType.Rest, i, restSeconds));
         }
-        if (CooldownEnabled && CooldownDurationSeconds > 0)
+
+        var hasCooldown = CooldownEnabled && CooldownDurationSeconds > 0;
+        // The cool-down already brings things back down, so a trailing rest right
+        // before it would just be a second cool-down.
+        if (hasCooldown && list.Count > 0 && list[^1].Type == PhaseType.Rest)
+        {
+            list.RemoveAt(list.Count - 1);
+        }
+        if (hasCooldown)
         {
             list.Add(new Phase(PhaseType.Cooldown, 0, CooldownDurationSeconds));
         }

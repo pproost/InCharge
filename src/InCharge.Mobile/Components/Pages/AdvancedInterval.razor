@@ -416,26 +416,13 @@ else if (mode == Mode.Running && runningSession is not null)
         Sessions.SaveAll(sessions);
     }
 
-    private int SessionDurationSeconds(AdvancedSession session)
-    {
-        var total = session.Groups.Sum(g => g.Blocks.Sum(b => b.DurationSeconds) * Math.Max(1, g.RepeatCount));
-        if (session.WarmupEnabled)
-        {
-            total += session.WarmupDurationSeconds;
-        }
-        if (session.CooldownEnabled)
-        {
-            total += session.CooldownDurationSeconds;
-        }
-        return total;
-    }
-
     private string FormatSessionSummary(AdvancedSession session)
     {
-        var blockInstances = session.Groups.Sum(g => g.Blocks.Count * Math.Max(1, g.RepeatCount));
+        var runBlocks = BuildRunBlocks(session);
+        var blockInstances = runBlocks.Count(b => b.Kind is BlockKind.Move or BlockKind.Rest);
         var groupWord = session.Groups.Count == 1 ? "group" : "groups";
         var blockWord = blockInstances == 1 ? "block" : "blocks";
-        return $"{session.Groups.Count} {groupWord} · {blockInstances} {blockWord} · {FormatSeconds(SessionDurationSeconds(session))}";
+        return $"{session.Groups.Count} {groupWord} · {blockInstances} {blockWord} · {FormatSeconds(runBlocks.Sum(b => b.DurationSeconds))}";
     }
 
     // Expands warm-up, every group's repeats and cool-down into a flat run sequence, so the
@@ -467,7 +454,14 @@ else if (mode == Mode.Running && runningSession is not null)
             }
         }
 
-        if (session.CooldownEnabled && session.CooldownDurationSeconds > 0)
+        var hasCooldown = session.CooldownEnabled && session.CooldownDurationSeconds > 0;
+        // The cool-down already brings things back down, so a trailing rest right
+        // before it would just be a second cool-down.
+        if (hasCooldown && list.Count > 0 && list[^1].Kind == BlockKind.Rest)
+        {
+            list.RemoveAt(list.Count - 1);
+        }
+        if (hasCooldown)
         {
             list.Add(new RunBlock(BlockKind.Cooldown, session.CooldownDurationSeconds, "Cool-down"));
         }
