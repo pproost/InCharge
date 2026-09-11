@@ -24,6 +24,19 @@
 
 <div class="row g-3" style="max-width: 480px;">
     <div class="col-12">
+        <label class="form-label d-block">Duration unit</label>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="unit" id="unitMinutes"
+                   checked="@UseMinutes" disabled="@IsConfigLocked" @onchange="() => SetUnitAsync(true)" />
+            <label class="form-check-label" for="unitMinutes">Minutes</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="unit" id="unitSeconds"
+                   checked="@(!UseMinutes)" disabled="@IsConfigLocked" @onchange="() => SetUnitAsync(false)" />
+            <label class="form-check-label" for="unitSeconds">Seconds</label>
+        </div>
+    </div>
+    <div class="col-12">
         <label class="form-label">Moving duration</label>
         @if (UseMinutes)
         {
@@ -67,32 +80,6 @@
                @bind="Repeats" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
     </div>
     <div class="col-12">
-        <label class="form-label d-block">Duration unit</label>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="unit" id="unitMinutes"
-                   checked="@UseMinutes" disabled="@IsConfigLocked" @onchange="() => SetUnitAsync(true)" />
-            <label class="form-check-label" for="unitMinutes">Minutes</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="unit" id="unitSeconds"
-                   checked="@(!UseMinutes)" disabled="@IsConfigLocked" @onchange="() => SetUnitAsync(false)" />
-            <label class="form-check-label" for="unitSeconds">Seconds</label>
-        </div>
-    </div>
-    <div class="col-12">
-        <label class="form-label d-block">End the activity with</label>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="endWith" id="endWithRest"
-                   checked="@EndWithRest" disabled="@IsConfigLocked" @onchange="() => SetEndWithAsync(true)" />
-            <label class="form-check-label" for="endWithRest">Rest</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="endWith" id="endWithMove"
-                   checked="@(!EndWithRest)" disabled="@IsConfigLocked" @onchange="() => SetEndWithAsync(false)" />
-            <label class="form-check-label" for="endWithMove">Movement</label>
-        </div>
-    </div>
-    <div class="col-12">
         <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" role="switch" id="warmupEnabled"
                    checked="@WarmupEnabled" disabled="@IsConfigLocked" @onchange="e => SetWarmupEnabledAsync((bool)(e.Value ?? false))" />
@@ -118,35 +105,32 @@
             }
         }
     </div>
-    @if (!EndWithRest)
-    {
-        <div class="col-12">
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="cooldownEnabled"
-                       checked="@CooldownEnabled" disabled="@IsConfigLocked" @onchange="e => SetCooldownEnabledAsync((bool)(e.Value ?? false))" />
-                <label class="form-check-label" for="cooldownEnabled">Include a cool-down</label>
-            </div>
-            @if (CooldownEnabled)
-            {
-                @if (UseMinutes)
-                {
-                    <div class="d-flex align-items-center gap-2 mt-2">
-                        <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
-                               @bind="CooldownMinutesPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
-                        <span>min</span>
-                        <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
-                               @bind="CooldownSecondsPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
-                        <span>sec</span>
-                    </div>
-                }
-                else
-                {
-                    <input type="number" min="1" step="1" inputmode="numeric" class="form-control mt-2"
-                           @bind="CooldownDurationSeconds" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
-                }
-            }
+    <div class="col-12">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="cooldownEnabled"
+                   checked="@CooldownEnabled" disabled="@IsConfigLocked" @onchange="e => SetCooldownEnabledAsync((bool)(e.Value ?? false))" />
+            <label class="form-check-label" for="cooldownEnabled">Include a cool-down</label>
         </div>
-    }
+        @if (CooldownEnabled)
+        {
+            @if (UseMinutes)
+            {
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           @bind="CooldownMinutesPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+                    <span>min</span>
+                    <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           @bind="CooldownSecondsPart" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+                    <span>sec</span>
+                </div>
+            }
+            else
+            {
+                <input type="number" min="1" step="1" inputmode="numeric" class="form-control mt-2"
+                       @bind="CooldownDurationSeconds" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
+            }
+        }
+    </div>
 </div>
 
 @if (!HasStarted)
@@ -199,7 +183,6 @@
     private int RestingDurationSeconds { get; set; } = 60;
     private int Repeats { get; set; } = 4;
     private bool UseMinutes { get; set; } = true;
-    private bool EndWithRest { get; set; } = true;
     private bool WarmupEnabled { get; set; }
     private int WarmupDurationSeconds { get; set; } = 300;
     private bool CooldownEnabled { get; set; }
@@ -288,7 +271,6 @@
                 RestingDurationSeconds = saved.RestingDurationSeconds;
                 Repeats = saved.Repeats;
                 UseMinutes = saved.UseMinutes;
-                EndWithRest = saved.EndWithRest;
                 WarmupEnabled = saved.WarmupEnabled;
                 WarmupDurationSeconds = saved.WarmupDurationSeconds;
                 CooldownEnabled = saved.CooldownEnabled;
@@ -309,7 +291,6 @@
             RestingDurationSeconds = RestingDurationSeconds,
             Repeats = Repeats,
             UseMinutes = UseMinutes,
-            EndWithRest = EndWithRest,
             WarmupEnabled = WarmupEnabled,
             WarmupDurationSeconds = WarmupDurationSeconds,
             CooldownEnabled = CooldownEnabled,
@@ -322,12 +303,6 @@
     private Task SetUnitAsync(bool useMinutes)
     {
         UseMinutes = useMinutes;
-        return SaveSettingsAsync();
-    }
-
-    private Task SetEndWithAsync(bool endWithRest)
-    {
-        EndWithRest = endWithRest;
         return SaveSettingsAsync();
     }
 
@@ -356,15 +331,9 @@
         for (var i = 1; i <= repeats; i++)
         {
             list.Add(new Phase(PhaseType.Move, i, moveSeconds));
-            var isLast = i == repeats;
-            if (!isLast || EndWithRest)
-            {
-                list.Add(new Phase(PhaseType.Rest, i, restSeconds));
-            }
+            list.Add(new Phase(PhaseType.Rest, i, restSeconds));
         }
-        // A cool-down only makes sense when the activity ends on movement - if it ends on
-        // rest, that rest phase already brings the heart rate down.
-        if (!EndWithRest && CooldownEnabled && CooldownDurationSeconds > 0)
+        if (CooldownEnabled && CooldownDurationSeconds > 0)
         {
             list.Add(new Phase(PhaseType.Cooldown, 0, CooldownDurationSeconds));
         }
@@ -571,7 +540,6 @@
         public int RestingDurationSeconds { get; set; }
         public int Repeats { get; set; }
         public bool UseMinutes { get; set; }
-        public bool EndWithRest { get; set; }
         public bool WarmupEnabled { get; set; }
         public int WarmupDurationSeconds { get; set; } = 300;
         public bool CooldownEnabled { get; set; }
