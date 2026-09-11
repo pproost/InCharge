@@ -38,6 +38,75 @@ public class NotificationService
         await LocalNotificationCenter.Current.Show(request);
     }
 
+    // Shows (or updates in place, since it always reuses progressNotificationId) an ongoing
+    // notification that uses Android's native chronometer view to count down "remaining"
+    // on its own, so the notification shade shows a live timer without us re-posting every second.
+    public async Task ShowProgressAsync(int progressNotificationId, string title, string body, TimeSpan remaining)
+    {
+        await WaitUntilReadyAsync();
+        if (LocalNotificationCenter.Current is null)
+        {
+            return;
+        }
+
+        var request = new NotificationRequest
+        {
+            NotificationId = progressNotificationId,
+            Title = title,
+            Description = body,
+            ReturningData = "incharge",
+            Android =
+            {
+                Ongoing = true,
+                AutoCancel = false,
+                OnlyAlertOnce = true,
+                When = DateTimeOffset.Now.Add(remaining),
+                UsesChronometer = true,
+                ChronometerCountDown = true
+            }
+        };
+
+        await LocalNotificationCenter.Current.Show(request);
+    }
+
+    // Same ongoing notification, but frozen (no chronometer) - used while the activity is paused.
+    public async Task ShowFrozenProgressAsync(int progressNotificationId, string title, string body)
+    {
+        await WaitUntilReadyAsync();
+        if (LocalNotificationCenter.Current is null)
+        {
+            return;
+        }
+
+        var request = new NotificationRequest
+        {
+            NotificationId = progressNotificationId,
+            Title = title,
+            Description = body,
+            ReturningData = "incharge",
+            Android =
+            {
+                Ongoing = true,
+                AutoCancel = false,
+                OnlyAlertOnce = true,
+                UsesChronometer = false
+            }
+        };
+
+        await LocalNotificationCenter.Current.Show(request);
+    }
+
+    public async Task ClearProgressAsync(int progressNotificationId)
+    {
+        await WaitUntilReadyAsync();
+        if (LocalNotificationCenter.Current is null)
+        {
+            return;
+        }
+
+        LocalNotificationCenter.Current.Cancel(progressNotificationId);
+    }
+
     // LocalNotificationCenter.Current is populated by platform lifecycle events wired up
     // through UseLocalNotification() and can still be null for a brief moment while the
     // app is starting up - calling into it too early crashed the app on launch.

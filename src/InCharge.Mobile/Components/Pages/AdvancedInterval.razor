@@ -38,7 +38,7 @@
             <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-2">
                 <div>
                     <strong>@session.Name</strong>
-                    <div class="small text-muted">@session.Blocks.Count block(s) &middot; @FormatSessionDuration(session)</div>
+                    <div class="small text-muted">@FormatSessionSummary(session)</div>
                 </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-success btn-sm" @onclick="() => RunSession(session)" title="Start" aria-label="Start">@PlayIcon</button>
@@ -72,47 +72,125 @@ else if (mode == Mode.Edit)
         </div>
     </div>
 
-    @for (var i = 0; i < editBlocks.Count; i++)
-    {
-        var index = i;
-        var block = editBlocks[index];
-        <div class="card mb-2">
-            <div class="card-body d-flex flex-wrap align-items-center gap-2">
-                <span class="fw-bold" style="width: 1.5rem;">@(index + 1)</span>
-                <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="radio" name="@($"blockType{index}")" id="@($"blockMove{index}")"
-                           checked="@block.IsMove" @onchange="() => block.IsMove = true" />
-                    <label class="form-check-label" for="@($"blockMove{index}")">Move</label>
-                </div>
-                <div class="form-check form-check-inline mb-0">
-                    <input class="form-check-input" type="radio" name="@($"blockType{index}")" id="@($"blockRest{index}")"
-                           checked="@(!block.IsMove)" @onchange="() => block.IsMove = false" />
-                    <label class="form-check-label" for="@($"blockRest{index}")">Rest</label>
-                </div>
-                @if (editUseMinutes)
-                {
-                    <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
-                           value="@(block.DurationSeconds / 60)" @onchange="e => SetBlockMinutes(block, e.Value)" />
+    <div class="mb-3">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="editWarmupEnabled"
+                   checked="@editWarmupEnabled" @onchange="e => editWarmupEnabled = (bool)(e.Value ?? false)" />
+            <label class="form-check-label" for="editWarmupEnabled">Include a warm-up</label>
+        </div>
+        @if (editWarmupEnabled)
+        {
+            @if (editUseMinutes)
+            {
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           value="@(editWarmupDurationSeconds / 60)" @onchange="e => editWarmupDurationSeconds = ParseNonNegativeInt(e.Value) * 60 + editWarmupDurationSeconds % 60" />
                     <span>min</span>
-                    <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
-                           value="@(block.DurationSeconds % 60)" @onchange="e => SetBlockSeconds(block, e.Value)" />
+                    <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           value="@(editWarmupDurationSeconds % 60)" @onchange="e => editWarmupDurationSeconds = editWarmupDurationSeconds / 60 * 60 + Math.Clamp(ParseNonNegativeInt(e.Value), 0, 59)" />
                     <span>sec</span>
-                }
-                else
+                </div>
+            }
+            else
+            {
+                <input type="number" min="1" step="1" inputmode="numeric" class="form-control mt-2" style="max-width: 6rem;"
+                       value="@editWarmupDurationSeconds" @onchange="e => editWarmupDurationSeconds = Math.Max(1, ParseNonNegativeInt(e.Value))" />
+            }
+        }
+    </div>
+
+    <div class="mb-3">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="editCooldownEnabled"
+                   checked="@editCooldownEnabled" @onchange="e => editCooldownEnabled = (bool)(e.Value ?? false)" />
+            <label class="form-check-label" for="editCooldownEnabled">Include a cool-down</label>
+        </div>
+        @if (editCooldownEnabled)
+        {
+            @if (editUseMinutes)
+            {
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           value="@(editCooldownDurationSeconds / 60)" @onchange="e => editCooldownDurationSeconds = ParseNonNegativeInt(e.Value) * 60 + editCooldownDurationSeconds % 60" />
+                    <span>min</span>
+                    <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                           value="@(editCooldownDurationSeconds % 60)" @onchange="e => editCooldownDurationSeconds = editCooldownDurationSeconds / 60 * 60 + Math.Clamp(ParseNonNegativeInt(e.Value), 0, 59)" />
+                    <span>sec</span>
+                </div>
+            }
+            else
+            {
+                <input type="number" min="1" step="1" inputmode="numeric" class="form-control mt-2" style="max-width: 6rem;"
+                       value="@editCooldownDurationSeconds" @onchange="e => editCooldownDurationSeconds = Math.Max(1, ParseNonNegativeInt(e.Value))" />
+            }
+        }
+    </div>
+
+    @for (var gi = 0; gi < editGroups.Count; gi++)
+    {
+        var groupIndex = gi;
+        var group = editGroups[groupIndex];
+        <div class="card mb-2 border-primary-subtle">
+            <div class="card-body">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <strong>Group @(groupIndex + 1)</strong>
+                    <label class="ms-2 mb-0" for="@($"groupRepeat{groupIndex}")">Repeat</label>
+                    <input id="@($"groupRepeat{groupIndex}")" type="number" min="1" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
+                           value="@group.RepeatCount" @onchange="e => group.RepeatCount = Math.Max(1, ParseNonNegativeInt(e.Value))" />
+                    <span>time(s)</span>
+                    <button class="btn btn-outline-danger btn-sm ms-auto" @onclick="() => editGroups.RemoveAt(groupIndex)" title="Remove group" aria-label="Remove group">
+                        @DeleteIcon
+                    </button>
+                </div>
+
+                @for (var bi = 0; bi < group.Blocks.Count; bi++)
                 {
-                    <input type="number" min="1" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
-                           value="@block.DurationSeconds" @onchange="e => SetBlockWholeSeconds(block, e.Value)" />
-                    <span>sec</span>
+                    var blockIndex = bi;
+                    var block = group.Blocks[blockIndex];
+                    <div class="card mb-2">
+                        <div class="card-body d-flex flex-wrap align-items-center gap-2">
+                            <span class="fw-bold" style="width: 1.5rem;">@(blockIndex + 1)</span>
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="@($"blockType{groupIndex}_{blockIndex}")" id="@($"blockMove{groupIndex}_{blockIndex}")"
+                                       checked="@block.IsMove" @onchange="() => block.IsMove = true" />
+                                <label class="form-check-label" for="@($"blockMove{groupIndex}_{blockIndex}")">Move</label>
+                            </div>
+                            <div class="form-check form-check-inline mb-0">
+                                <input class="form-check-input" type="radio" name="@($"blockType{groupIndex}_{blockIndex}")" id="@($"blockRest{groupIndex}_{blockIndex}")"
+                                       checked="@(!block.IsMove)" @onchange="() => block.IsMove = false" />
+                                <label class="form-check-label" for="@($"blockRest{groupIndex}_{blockIndex}")">Rest</label>
+                            </div>
+                            @if (editUseMinutes)
+                            {
+                                <input type="number" min="0" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
+                                       value="@(block.DurationSeconds / 60)" @onchange="e => SetBlockMinutes(block, e.Value)" />
+                                <span>min</span>
+                                <input type="number" min="0" max="59" step="1" inputmode="numeric" class="form-control" style="max-width: 5rem;"
+                                       value="@(block.DurationSeconds % 60)" @onchange="e => SetBlockSeconds(block, e.Value)" />
+                                <span>sec</span>
+                            }
+                            else
+                            {
+                                <input type="number" min="1" step="1" inputmode="numeric" class="form-control" style="max-width: 6rem;"
+                                       value="@block.DurationSeconds" @onchange="e => SetBlockWholeSeconds(block, e.Value)" />
+                                <span>sec</span>
+                            }
+                            <button class="btn btn-outline-danger btn-sm ms-auto" @onclick="() => group.Blocks.RemoveAt(blockIndex)" title="Remove block" aria-label="Remove block">
+                                @DeleteIcon
+                            </button>
+                        </div>
+                    </div>
                 }
-                <button class="btn btn-outline-danger btn-sm ms-auto" @onclick="() => editBlocks.RemoveAt(index)" title="Remove block" aria-label="Remove block">
-                    @DeleteIcon
+
+                <button class="btn btn-outline-primary btn-sm" @onclick="() => AddBlockToGroup(group)">
+                    @PlusIcon <span>Add block</span>
                 </button>
             </div>
         </div>
     }
 
-    <button class="btn btn-outline-primary mb-3" @onclick="AddBlock">
-        @PlusIcon <span>Add block</span>
+    <button class="btn btn-outline-primary mb-3" @onclick="AddGroup">
+        @PlusIcon <span>Add group</span>
     </button>
 
     @if (!string.IsNullOrEmpty(editError))
@@ -166,6 +244,8 @@ else if (mode == Mode.Running && runningSession is not null)
         Running
     }
 
+    private const int ProgressNotificationId = 20002;
+
     private Mode mode = Mode.List;
     private bool notificationsEnabled;
     private List<AdvancedSession> sessions = new();
@@ -174,11 +254,16 @@ else if (mode == Mode.Running && runningSession is not null)
     private string? editingSessionId;
     private string editName = "";
     private bool editUseMinutes = true;
-    private List<IntervalBlock> editBlocks = new();
+    private bool editWarmupEnabled;
+    private int editWarmupDurationSeconds = 300;
+    private bool editCooldownEnabled;
+    private int editCooldownDurationSeconds = 300;
+    private List<IntervalGroup> editGroups = new();
     private string? editError;
 
     // Running state
     private AdvancedSession? runningSession;
+    private List<RunBlock> runBlocks = new();
     private int currentBlockIndex = -1;
     private int remainingSeconds;
     private int totalDurationSeconds;
@@ -198,7 +283,14 @@ else if (mode == Mode.Running && runningSession is not null)
         editingSessionId = null;
         editName = "";
         editUseMinutes = true;
-        editBlocks = new List<IntervalBlock> { new() { IsMove = true, DurationSeconds = 60 } };
+        editWarmupEnabled = false;
+        editWarmupDurationSeconds = 300;
+        editCooldownEnabled = false;
+        editCooldownDurationSeconds = 300;
+        editGroups = new List<IntervalGroup>
+        {
+            new() { RepeatCount = 1, Blocks = new List<IntervalBlock> { new() { IsMove = true, DurationSeconds = 60 } } }
+        };
         editError = null;
         mode = Mode.Edit;
     }
@@ -208,15 +300,34 @@ else if (mode == Mode.Running && runningSession is not null)
         editingSessionId = session.Id;
         editName = session.Name;
         editUseMinutes = session.UseMinutes;
-        editBlocks = session.Blocks.Select(b => new IntervalBlock { IsMove = b.IsMove, DurationSeconds = b.DurationSeconds }).ToList();
+        editWarmupEnabled = session.WarmupEnabled;
+        editWarmupDurationSeconds = session.WarmupDurationSeconds;
+        editCooldownEnabled = session.CooldownEnabled;
+        editCooldownDurationSeconds = session.CooldownDurationSeconds;
+        editGroups = session.Groups.Select(g => new IntervalGroup
+        {
+            RepeatCount = g.RepeatCount,
+            Blocks = g.Blocks.Select(b => new IntervalBlock { IsMove = b.IsMove, DurationSeconds = b.DurationSeconds }).ToList()
+        }).ToList();
         editError = null;
         mode = Mode.Edit;
     }
 
-    private void AddBlock()
+    private void AddGroup()
     {
-        var last = editBlocks.LastOrDefault();
-        editBlocks.Add(new IntervalBlock { IsMove = last is null || !last.IsMove, DurationSeconds = last?.DurationSeconds ?? 60 });
+        var lastGroup = editGroups.LastOrDefault();
+        var lastBlock = lastGroup?.Blocks.LastOrDefault();
+        editGroups.Add(new IntervalGroup
+        {
+            RepeatCount = 1,
+            Blocks = new List<IntervalBlock> { new() { IsMove = lastBlock is null || !lastBlock.IsMove, DurationSeconds = lastBlock?.DurationSeconds ?? 60 } }
+        });
+    }
+
+    private void AddBlockToGroup(IntervalGroup group)
+    {
+        var last = group.Blocks.LastOrDefault();
+        group.Blocks.Add(new IntervalBlock { IsMove = last is null || !last.IsMove, DurationSeconds = last?.DurationSeconds ?? 60 });
     }
 
     private static void SetBlockMinutes(IntervalBlock block, object? value)
@@ -247,15 +358,27 @@ else if (mode == Mode.Running && runningSession is not null)
             return;
         }
 
-        if (editBlocks.Count == 0)
+        if (editGroups.Count == 0 || editGroups.All(g => g.Blocks.Count == 0))
         {
             editError = "Add at least one block.";
             return;
         }
 
-        if (editBlocks.Any(b => b.DurationSeconds <= 0))
+        if (editGroups.SelectMany(g => g.Blocks).Any(b => b.DurationSeconds <= 0))
         {
             editError = "Every block needs a duration of at least 1 second.";
+            return;
+        }
+
+        if (editWarmupEnabled && editWarmupDurationSeconds <= 0)
+        {
+            editError = "The warm-up needs a duration of at least 1 second.";
+            return;
+        }
+
+        if (editCooldownEnabled && editCooldownDurationSeconds <= 0)
+        {
+            editError = "The cool-down needs a duration of at least 1 second.";
             return;
         }
 
@@ -265,7 +388,11 @@ else if (mode == Mode.Running && runningSession is not null)
 
         session.Name = editName.Trim();
         session.UseMinutes = editUseMinutes;
-        session.Blocks = editBlocks;
+        session.WarmupEnabled = editWarmupEnabled;
+        session.WarmupDurationSeconds = editWarmupDurationSeconds;
+        session.CooldownEnabled = editCooldownEnabled;
+        session.CooldownDurationSeconds = editCooldownDurationSeconds;
+        session.Groups = editGroups.Where(g => g.Blocks.Count > 0).ToList();
 
         if (editingSessionId is null)
         {
@@ -289,16 +416,74 @@ else if (mode == Mode.Running && runningSession is not null)
         Sessions.SaveAll(sessions);
     }
 
-    private string FormatSessionDuration(AdvancedSession session) => FormatSeconds(session.Blocks.Sum(b => b.DurationSeconds));
+    private int SessionDurationSeconds(AdvancedSession session)
+    {
+        var total = session.Groups.Sum(g => g.Blocks.Sum(b => b.DurationSeconds) * Math.Max(1, g.RepeatCount));
+        if (session.WarmupEnabled)
+        {
+            total += session.WarmupDurationSeconds;
+        }
+        if (session.CooldownEnabled)
+        {
+            total += session.CooldownDurationSeconds;
+        }
+        return total;
+    }
+
+    private string FormatSessionSummary(AdvancedSession session)
+    {
+        var blockInstances = session.Groups.Sum(g => g.Blocks.Count * Math.Max(1, g.RepeatCount));
+        var groupWord = session.Groups.Count == 1 ? "group" : "groups";
+        var blockWord = blockInstances == 1 ? "block" : "blocks";
+        return $"{session.Groups.Count} {groupWord} · {blockInstances} {blockWord} · {FormatSeconds(SessionDurationSeconds(session))}";
+    }
+
+    // Expands warm-up, every group's repeats and cool-down into a flat run sequence, so the
+    // timer loop below only ever has to deal with "the next block", never with groups/repeats.
+    private static List<RunBlock> BuildRunBlocks(AdvancedSession session)
+    {
+        var list = new List<RunBlock>();
+        if (session.WarmupEnabled && session.WarmupDurationSeconds > 0)
+        {
+            list.Add(new RunBlock(BlockKind.Warmup, session.WarmupDurationSeconds, "Warm-up"));
+        }
+
+        var groupCount = session.Groups.Count;
+        for (var g = 0; g < groupCount; g++)
+        {
+            var group = session.Groups[g];
+            var repeatCount = Math.Max(1, group.RepeatCount);
+            for (var r = 1; r <= repeatCount; r++)
+            {
+                var groupLabel = groupCount > 1 ? $"Group {g + 1}/{groupCount}" : null;
+                var repeatLabel = repeatCount > 1 ? $"Rep {r}/{repeatCount}" : null;
+                for (var b = 0; b < group.Blocks.Count; b++)
+                {
+                    var block = group.Blocks[b];
+                    var blockLabel = group.Blocks.Count > 1 ? $"Block {b + 1}/{group.Blocks.Count}" : null;
+                    var detail = string.Join(" · ", new[] { groupLabel, repeatLabel, blockLabel }.Where(s => !string.IsNullOrEmpty(s)));
+                    list.Add(new RunBlock(block.IsMove ? BlockKind.Move : BlockKind.Rest, Math.Max(1, block.DurationSeconds), detail));
+                }
+            }
+        }
+
+        if (session.CooldownEnabled && session.CooldownDurationSeconds > 0)
+        {
+            list.Add(new RunBlock(BlockKind.Cooldown, session.CooldownDurationSeconds, "Cool-down"));
+        }
+
+        return list;
+    }
 
     private async Task RunSession(AdvancedSession session)
     {
         runningSession = session;
+        runBlocks = BuildRunBlocks(session);
         currentBlockIndex = -1;
         isCompleted = false;
         isRunning = true;
         isPaused = false;
-        totalDurationSeconds = session.Blocks.Sum(b => b.DurationSeconds);
+        totalDurationSeconds = runBlocks.Sum(b => b.DurationSeconds);
         mode = Mode.Running;
         await AdvanceBlockAsync();
         RunLoop();
@@ -310,12 +495,19 @@ else if (mode == Mode.Running && runningSession is not null)
         isRunning = false;
         isPaused = true;
         _ = Notifier.NotifyAsync("InCharge", "Activity paused.");
+        var pausedDuring = currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count ? HeadingFor(runBlocks[currentBlockIndex].Kind) : "";
+        _ = Notifier.ShowFrozenProgressAsync(ProgressNotificationId, "Paused", $"{pausedDuring} - {FormatSeconds(Math.Max(0, remainingSeconds))} left");
     }
 
-    private void ResumeActivity()
+    private async Task ResumeActivity()
     {
         isPaused = false;
         isRunning = true;
+        if (currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count)
+        {
+            var block = runBlocks[currentBlockIndex];
+            await Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(block.Kind), block.Detail, TimeSpan.FromSeconds(remainingSeconds));
+        }
         RunLoop();
     }
 
@@ -324,9 +516,11 @@ else if (mode == Mode.Running && runningSession is not null)
         _cts?.Cancel();
         mode = Mode.List;
         runningSession = null;
+        runBlocks = new List<RunBlock>();
         isRunning = false;
         isPaused = false;
         isCompleted = false;
+        _ = Notifier.ClearProgressAsync(ProgressNotificationId);
     }
 
     private void RunLoop()
@@ -363,20 +557,27 @@ else if (mode == Mode.Running && runningSession is not null)
     private async Task AdvanceBlockAsync()
     {
         currentBlockIndex++;
-        if (runningSession is null || currentBlockIndex >= runningSession.Blocks.Count)
+        if (currentBlockIndex >= runBlocks.Count)
         {
             isCompleted = true;
             isRunning = false;
             await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
+            await Notifier.ClearProgressAsync(ProgressNotificationId);
             return;
         }
 
-        var block = runningSession.Blocks[currentBlockIndex];
+        var block = runBlocks[currentBlockIndex];
         remainingSeconds = block.DurationSeconds;
-        var label = block.IsMove
-            ? $"Start to move {currentBlockIndex + 1}/{runningSession.Blocks.Count}"
-            : $"Slow down {currentBlockIndex + 1}/{runningSession.Blocks.Count}";
+        var label = block.Kind switch
+        {
+            BlockKind.Warmup => "Warm-up! Ease into it.",
+            BlockKind.Move => string.IsNullOrEmpty(block.Detail) ? "Start to move" : $"Start to move ({block.Detail})",
+            BlockKind.Rest => string.IsNullOrEmpty(block.Detail) ? "Slow down" : $"Slow down ({block.Detail})",
+            BlockKind.Cooldown => "Cool down! Nice and easy.",
+            _ => "InCharge"
+        };
         await Notifier.NotifyAsync("InCharge", label);
+        await Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(block.Kind), block.Detail, TimeSpan.FromSeconds(block.DurationSeconds));
     }
 
     private RenderFragment PlayIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5v11l10-5.5-10-5.5z" /></svg>;
@@ -391,12 +592,30 @@ else if (mode == Mode.Running && runningSession is not null)
 
     private RenderFragment PlusIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z" /></svg>;
 
+    private static string HeadingFor(BlockKind kind) => kind switch
+    {
+        BlockKind.Warmup => "Warm-up!",
+        BlockKind.Move => "Move!",
+        BlockKind.Rest => "Rest",
+        BlockKind.Cooldown => "Cool down!",
+        _ => ""
+    };
+
+    private static string ColorClassFor(BlockKind kind) => kind switch
+    {
+        BlockKind.Warmup => "phase-warmup",
+        BlockKind.Move => "phase-move",
+        BlockKind.Rest => "phase-rest",
+        BlockKind.Cooldown => "phase-cooldown",
+        _ => ""
+    };
+
     private string PhaseColorClass => isCompleted
         ? "phase-complete"
         : isPaused
             ? "phase-paused"
-            : runningSession is not null && currentBlockIndex >= 0 && currentBlockIndex < runningSession.Blocks.Count
-                ? (runningSession.Blocks[currentBlockIndex].IsMove ? "phase-move" : "phase-rest")
+            : currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count
+                ? ColorClassFor(runBlocks[currentBlockIndex].Kind)
                 : "";
 
     private string FormattedRemaining => isCompleted
@@ -409,8 +628,8 @@ else if (mode == Mode.Running && runningSession is not null)
         ? "Activity complete"
         : isPaused
             ? "Paused"
-            : runningSession is not null && currentBlockIndex >= 0 && currentBlockIndex < runningSession.Blocks.Count
-                ? (runningSession.Blocks[currentBlockIndex].IsMove ? "Move!" : "Rest")
+            : currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count
+                ? HeadingFor(runBlocks[currentBlockIndex].Kind)
                 : "Idle";
 
     private string StatusDetail
@@ -422,18 +641,32 @@ else if (mode == Mode.Running && runningSession is not null)
                 return "You finished the activity.";
             }
 
-            if (runningSession is null || currentBlockIndex < 0 || currentBlockIndex >= runningSession.Blocks.Count)
+            if (currentBlockIndex < 0 || currentBlockIndex >= runBlocks.Count)
             {
                 return string.Empty;
             }
 
-            return $"Block {currentBlockIndex + 1} / {runningSession.Blocks.Count}";
+            return runBlocks[currentBlockIndex].Detail;
         }
     }
 
     public ValueTask DisposeAsync()
     {
         _cts?.Cancel();
+        if (mode == Mode.Running && !isCompleted)
+        {
+            _ = Notifier.ClearProgressAsync(ProgressNotificationId);
+        }
         return ValueTask.CompletedTask;
     }
+
+    private enum BlockKind
+    {
+        Warmup,
+        Move,
+        Rest,
+        Cooldown
+    }
+
+    private record RunBlock(BlockKind Kind, int DurationSeconds, string Detail);
 }

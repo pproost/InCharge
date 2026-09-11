@@ -31,6 +31,14 @@
     color: #60a5fa;
 }
 
+.phase-warmup {
+    color: #fb923c;
+}
+
+.phase-cooldown {
+    color: #38bdf8;
+}
+
 .phase-paused {
     color: #cbd5e1;
 }
