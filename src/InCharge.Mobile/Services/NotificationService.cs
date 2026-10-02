@@ -1,9 +1,10 @@
 using Plugin.LocalNotification;
 using Plugin.LocalNotification.Core.Models;
+using Plugin.LocalNotification.Core.Models.AndroidOption;
 
 namespace InCharge.Mobile.Services;
 
-public class NotificationService
+public class NotificationService(AppSettingsService appSettings)
 {
     private int _lastNotificationId;
 
@@ -27,6 +28,13 @@ public class NotificationService
             return;
         }
 
+        // A fresh id (rather than reusing the previous one) is what makes Android buzz again
+        // and relay the cue to the watch, so the old one is cancelled instead of updated.
+        if (appSettings.Load().OnlyLatestNotification && _lastNotificationId > 0)
+        {
+            LocalNotificationCenter.Current.Cancel(_lastNotificationId);
+        }
+
         var request = new NotificationRequest
         {
             NotificationId = ++_lastNotificationId,
@@ -38,10 +46,9 @@ public class NotificationService
         await LocalNotificationCenter.Current.Show(request);
     }
 
-    // Shows (or updates in place, since it always reuses progressNotificationId) an ongoing
-    // notification that uses Android's native chronometer view to count down "remaining"
-    // on its own, so the notification shade shows a live timer without us re-posting every second.
-    public async Task ShowProgressAsync(int progressNotificationId, string title, string body, TimeSpan remaining)
+    // Updated in place every second (same id, silent) so the remaining time can be the
+    // large title text - Android's chronometer only renders small in the header.
+    public async Task ShowProgressAsync(int progressNotificationId, string heading, string detail, int remainingSeconds, int totalSeconds)
     {
         await WaitUntilReadyAsync();
         if (LocalNotificationCenter.Current is null)
@@ -49,20 +56,23 @@ public class NotificationService
             return;
         }
 
+        var remaining = Math.Max(0, remainingSeconds);
         var request = new NotificationRequest
         {
             NotificationId = progressNotificationId,
-            Title = title,
-            Description = body,
+            Title = $"{heading}  {TimeSpan.FromSeconds(remaining):m\\:ss}",
+            Description = detail,
             ReturningData = "incharge",
             Android =
             {
                 Ongoing = true,
                 AutoCancel = false,
                 OnlyAlertOnce = true,
-                When = DateTimeOffset.Now.Add(remaining),
-                UsesChronometer = true,
-                ChronometerCountDown = true
+                ProgressBar = new AndroidProgressBar
+                {
+                    Max = Math.Max(1, totalSeconds),
+                    Progress = Math.Max(0, totalSeconds - remaining)
+                }
             }
         };
 

@@ -499,8 +499,7 @@ else if (mode == Mode.Running && runningSession is not null)
         isRunning = true;
         if (currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count)
         {
-            var block = runBlocks[currentBlockIndex];
-            await Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(block.Kind), block.Detail, TimeSpan.FromSeconds(remainingSeconds));
+            await UpdateProgressAsync();
         }
         RunLoop();
     }
@@ -534,6 +533,10 @@ else if (mode == Mode.Running && runningSession is not null)
                 if (remainingSeconds <= 0)
                 {
                     await AdvanceBlockAsync();
+                }
+                else
+                {
+                    await UpdateProgressAsync();
                 }
                 await InvokeAsync(StateHasChanged);
                 if (isCompleted)
@@ -571,7 +574,13 @@ else if (mode == Mode.Running && runningSession is not null)
             _ => "InCharge"
         };
         await Notifier.NotifyAsync("InCharge", label);
-        await Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(block.Kind), block.Detail, TimeSpan.FromSeconds(block.DurationSeconds));
+        await UpdateProgressAsync();
+    }
+
+    private Task UpdateProgressAsync()
+    {
+        var block = runBlocks[currentBlockIndex];
+        return Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(block.Kind), block.Detail, remainingSeconds, block.DurationSeconds);
     }
 
     private RenderFragment PlayIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5v11l10-5.5-10-5.5z" /></svg>;

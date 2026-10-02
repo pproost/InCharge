@@ -43,6 +43,13 @@
     &rarr; InCharge &rarr; Notifications.
 </p>
 
+<div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="onlyLatest"
+           checked="@onlyLatestNotification" @onchange="ToggleOnlyLatest" />
+    <label class="form-check-label" for="onlyLatest">Only show the latest notification</label>
+</div>
+<p class="text-muted small">When on, each new cue replaces the previous one instead of stacking up.</p>
+
 <h5 class="mt-4">Activity completion</h5>
 
 <div class="form-check form-switch">
@@ -55,6 +62,7 @@
 @code {
     private bool notificationsEnabled;
     private bool showDurationOnComplete;
+    private bool onlyLatestNotification;
     private string? message;
     private int sendCount;
 
@@ -62,6 +70,15 @@
     {
         notificationsEnabled = await Notifier.AreNotificationsEnabledAsync();
         showDurationOnComplete = AppSettings.Load().ShowDurationOnComplete;
+        onlyLatestNotification = AppSettings.Load().OnlyLatestNotification;
+    }
+
+    private void ToggleOnlyLatest(ChangeEventArgs e)
+    {
+        onlyLatestNotification = (bool)(e.Value ?? false);
+        var settings = AppSettings.Load();
+        settings.OnlyLatestNotification = onlyLatestNotification;
+        AppSettings.Save(settings);
     }
 
     private async Task RequestPermission()

@@ -356,7 +356,7 @@
             isRunning = true;
             if (currentPhaseIndex >= 0 && currentPhaseIndex < phases.Count)
             {
-                await Notifier.ShowProgressAsync(ProgressNotificationId, StatusHeading, StatusDetail, TimeSpan.FromSeconds(remainingSeconds));
+                await UpdateProgressAsync();
             }
             RunLoop();
             return;
@@ -412,6 +412,10 @@
                 {
                     await AdvancePhaseAsync();
                 }
+                else
+                {
+                    await UpdateProgressAsync();
+                }
                 await InvokeAsync(StateHasChanged);
                 if (isCompleted)
                 {
@@ -448,7 +452,13 @@
             _ => "InCharge"
         };
         await Notifier.NotifyAsync("InCharge", label);
-        await Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(phase.Type), StatusDetailFor(phase), TimeSpan.FromSeconds(phase.DurationSeconds));
+        await UpdateProgressAsync();
+    }
+
+    private Task UpdateProgressAsync()
+    {
+        var phase = phases[currentPhaseIndex];
+        return Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(phase.Type), StatusDetailFor(phase), remainingSeconds, phase.DurationSeconds);
     }
 
     private RenderFragment PlayIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5v11l10-5.5-10-5.5z" /></svg>;

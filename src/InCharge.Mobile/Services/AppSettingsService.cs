@@ -5,6 +5,7 @@ namespace InCharge.Mobile.Services;
 public class AppSettings
 {
     public bool ShowDurationOnComplete { get; set; } = true;
+    public bool OnlyLatestNotification { get; set; } = true;
 }
 
 public class AppSettingsService
