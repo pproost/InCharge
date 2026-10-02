@@ -1,0 +1,56 @@
+.settings-section {
+    margin-bottom: 1.5rem;
+}
+
+.section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    margin: 0 0 0.5rem 0.25rem;
+}
+
+.settings-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    margin: 0;
+    cursor: pointer;
+}
+
+.setting-row + .setting-row {
+    border-top: 1px solid #f1f5f9;
+}
+
+.setting-text {
+    min-width: 0;
+}
+
+.setting-name {
+    font-weight: 500;
+}
+
+.setting-hint {
+    font-size: 0.8rem;
+    color: #64748b;
+}
+
+.section-footnote {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin: 0.5rem 0.25rem 0;
+}
+
+.form-switch .form-check-input {
+    width: 2.75em;
+    height: 1.5em;
+}

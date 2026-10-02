@@ -153,6 +153,19 @@
                 <div class="activity-timer">@FormattedRemaining</div>
             }
             <div class="activity-progress">@StatusDetail</div>
+            @if (isCompleted && pendingLogEntry is not null)
+            {
+                <div class="log-status">
+                    @if (logSaved)
+                    {
+                        <span>✓ Saved to your activity log</span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-success" @onclick="SaveToLog">Save to log</button>
+                    }
+                </div>
+            }
             <div class="activity-controls">
                 @if (isRunning)
                 {
@@ -245,6 +258,17 @@
     private bool isCompleted;
     private CancellationTokenSource? _cts;
     private readonly ActivityRecorder recorder = new();
+    private ActivityLogEntry? pendingLogEntry;
+    private bool logSaved;
+
+    private void SaveToLog()
+    {
+        if (pendingLogEntry is not null && !logSaved)
+        {
+            ActivityLog.Add(pendingLogEntry);
+            logSaved = true;
+        }
+    }
 
     private bool HasStarted => currentPhaseIndex >= 0;
     private bool IsConfigLocked => HasStarted;
@@ -371,6 +395,7 @@
         isCompleted = false;
         isRunning = true;
         recorder.Start();
+        pendingLogEntry = null;
         await AdvancePhaseAsync();
         RunLoop();
     }
@@ -442,7 +467,12 @@
         {
             isCompleted = true;
             isRunning = false;
-            ActivityLog.Add(recorder.Complete("Basic Interval", false, phases.Select(p => (p.Type.ToString(), p.DurationSeconds))));
+            pendingLogEntry = recorder.Complete("Basic Interval", false, phases.Select(p => (p.Type.ToString(), p.DurationSeconds)));
+            logSaved = false;
+            if (AppSettings.Load().AutoSaveToLog)
+            {
+                SaveToLog();
+            }
             await Notifier.ClearTimerAsync();
             await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
             return;
@@ -518,7 +548,7 @@
         {
             if (isCompleted)
             {
-                return "You finished the activity. Saved to your activity log.";
+                return "You finished the activity.";
             }
 
             if (currentPhaseIndex < 0 || currentPhaseIndex >= phases.Count)

@@ -2,82 +2,109 @@
 @using InCharge.Mobile.Services
 @inject NotificationService Notifier
 @inject AppSettingsService AppSettings
+@inject ActivityLogService LogService
 
 <PageTitle>Settings</PageTitle>
 
 <h1>Settings</h1>
 
-<h5>Notifications</h5>
-
-<div class="card mb-4">
-    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
-        <div>
-            <div class="text-uppercase small text-muted">Notification permission</div>
-            <div class="fs-3 fw-bold @(notificationsEnabled ? "text-success" : "text-danger")">
-                @(notificationsEnabled ? "Enabled" : "Disabled")
+<section class="settings-section">
+    <h2 class="section-title">Notifications</h2>
+    <div class="settings-card">
+        <div class="setting-row">
+            <div class="setting-text">
+                <div class="setting-name">Permission</div>
+                <div class="setting-hint @(notificationsEnabled ? "text-success" : "text-danger")">
+                    @(notificationsEnabled ? "Enabled" : "Disabled")
+                </div>
             </div>
+            @if (!notificationsEnabled)
+            {
+                <button class="btn btn-primary btn-sm" @onclick="RequestPermission">Enable</button>
+            }
+            else
+            {
+                <button class="btn btn-outline-success btn-sm" @onclick="SendTestNotification">Send test</button>
+            }
         </div>
-        @if (!notificationsEnabled)
+        @if (!string.IsNullOrEmpty(message))
         {
-            <button class="btn btn-primary btn-lg" @onclick="RequestPermission">
-                Enable notifications
-            </button>
+            <div class="setting-hint px-3 pb-2">@message</div>
         }
-        else
-        {
-            <button class="btn btn-success btn-lg" @onclick="SendTestNotification">
-                Send test notification
-            </button>
-        }
+        <label class="setting-row" for="onlyLatest">
+            <div class="setting-text">
+                <div class="setting-name">Only show the latest notification</div>
+                <div class="setting-hint">Each new cue replaces the previous one instead of stacking up.</div>
+            </div>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="onlyLatest"
+                       checked="@settings.OnlyLatestNotification"
+                       @onchange="e => Update(s => s.OnlyLatestNotification = (bool)(e.Value ?? false))" />
+            </div>
+        </label>
     </div>
-    @if (!string.IsNullOrEmpty(message))
-    {
-        <div class="card-footer">@message</div>
-    }
-</div>
+    <p class="section-footnote">
+        Cues reach a paired watch (e.g. a Fitbit) through these notifications. If enabling doesn't work,
+        allow them via Android Settings &rarr; Apps &rarr; InCharge &rarr; Notifications.
+    </p>
+</section>
 
-<p>
-    InCharge needs permission to show notifications so it can send you cues during an
-    activity (e.g. through a paired smartwatch such as a Fitbit). If the button above
-    doesn't turn notifications on, allow them manually via Android Settings &rarr; Apps
-    &rarr; InCharge &rarr; Notifications.
-</p>
+<section class="settings-section">
+    <h2 class="section-title">Activity</h2>
+    <div class="settings-card">
+        <label class="setting-row" for="showDuration">
+            <div class="setting-text">
+                <div class="setting-name">Show total duration when finished</div>
+                <div class="setting-hint">When off, the completion screen shows no time at all.</div>
+            </div>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="showDuration"
+                       checked="@settings.ShowDurationOnComplete"
+                       @onchange="e => Update(s => s.ShowDurationOnComplete = (bool)(e.Value ?? false))" />
+            </div>
+        </label>
+        <label class="setting-row" for="autoSave">
+            <div class="setting-text">
+                <div class="setting-name">Save finished activities automatically</div>
+                <div class="setting-hint">When off, use "Save to log" on the completion screen.</div>
+            </div>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="autoSave"
+                       checked="@settings.AutoSaveToLog"
+                       @onchange="e => Update(s => s.AutoSaveToLog = (bool)(e.Value ?? false))" />
+            </div>
+        </label>
+    </div>
+</section>
 
-<div class="form-check form-switch">
-    <input class="form-check-input" type="checkbox" role="switch" id="onlyLatest"
-           checked="@onlyLatestNotification" @onchange="ToggleOnlyLatest" />
-    <label class="form-check-label" for="onlyLatest">Only show the latest notification</label>
-</div>
-<p class="text-muted small">When on, each new cue replaces the previous one instead of stacking up.</p>
-
-<h5 class="mt-4">Activity completion</h5>
-
-<div class="form-check form-switch">
-    <input class="form-check-input" type="checkbox" role="switch" id="showDuration"
-           checked="@showDurationOnComplete" @onchange="ToggleShowDuration" />
-    <label class="form-check-label" for="showDuration">Show the total duration when an activity finishes</label>
-</div>
-<p class="text-muted small">When off, the completion screen shows no time at all.</p>
+<section class="settings-section">
+    <h2 class="section-title">Data</h2>
+    <div class="settings-card">
+        <div class="setting-row">
+            <div class="setting-text">
+                <div class="setting-name">Activity log</div>
+                <div class="setting-hint">@LogService.LoadAll().Count session(s) stored on this device</div>
+            </div>
+            <a class="btn btn-outline-primary btn-sm" href="log">Open</a>
+        </div>
+    </div>
+</section>
 
 @code {
+    private AppSettings settings = new();
     private bool notificationsEnabled;
-    private bool showDurationOnComplete;
-    private bool onlyLatestNotification;
     private string? message;
     private int sendCount;
 
     protected override async Task OnInitializedAsync()
     {
+        settings = AppSettings.Load();
         notificationsEnabled = await Notifier.AreNotificationsEnabledAsync();
-        showDurationOnComplete = AppSettings.Load().ShowDurationOnComplete;
-        onlyLatestNotification = AppSettings.Load().OnlyLatestNotification;
     }
 
-    private void ToggleOnlyLatest(ChangeEventArgs e)
+    private void Update(Action<AppSettings> change)
     {
-        onlyLatestNotification = (bool)(e.Value ?? false);
-        var settings = AppSettings.Load();
-        settings.OnlyLatestNotification = onlyLatestNotification;
+        change(settings);
         AppSettings.Save(settings);
     }
 
@@ -90,14 +117,6 @@
     {
         sendCount++;
         await Notifier.NotifyAsync("InCharge", $"Test notification #{sendCount} at {DateTime.Now:HH:mm:ss}");
-        message = $"Notification #{sendCount} sent at {DateTime.Now:HH:mm:ss}";
-    }
-
-    private void ToggleShowDuration(ChangeEventArgs e)
-    {
-        showDurationOnComplete = (bool)(e.Value ?? false);
-        var settings = AppSettings.Load();
-        settings.ShowDurationOnComplete = showDurationOnComplete;
-        AppSettings.Save(settings);
+        message = $"Test #{sendCount} sent at {DateTime.Now:HH:mm:ss}";
     }
 }

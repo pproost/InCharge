@@ -24,9 +24,9 @@ else
             <div class="stat-sub">@WeekEntries.Count() session(s)@WeekTrend</div>
         </div>
         <div class="stat-tile">
-            <div class="stat-label">Streak</div>
-            <div class="stat-value">@Streak <span class="stat-unit">day@(Streak == 1 ? "" : "s")</span></div>
-            <div class="stat-sub">Best: @BestStreak day@(BestStreak == 1 ? "" : "s")</div>
+            <div class="stat-label">Weekly streak</div>
+            <div class="stat-value">@WeekStreak <span class="stat-unit">week@(WeekStreak == 1 ? "" : "s")</span></div>
+            <div class="stat-sub">in a row with a session · best @BestWeekStreak</div>
         </div>
         <div class="stat-tile">
             <div class="stat-label">Move time</div>
@@ -220,37 +220,38 @@ else
         }
     }
 
-    private HashSet<DateTime> ActiveDays => entries.Select(e => e.CompletedAt.Date).ToHashSet();
+    // Interval training isn't a daily habit, so streaks count weeks with at least one session.
+    private HashSet<DateTime> ActiveWeeks => entries.Select(e => StartOfWeek(e.CompletedAt)).ToHashSet();
 
-    // Counts back from today; a day without activity yet today doesn't break yesterday's streak.
-    private int Streak
+    // An empty current week doesn't break the streak yet - there's still time to train.
+    private int WeekStreak
     {
         get
         {
-            var days = ActiveDays;
-            var day = days.Contains(Today) ? Today : Today.AddDays(-1);
+            var weeks = ActiveWeeks;
+            var week = weeks.Contains(StartOfWeek(Today)) ? StartOfWeek(Today) : StartOfWeek(Today).AddDays(-7);
             var count = 0;
-            while (days.Contains(day))
+            while (weeks.Contains(week))
             {
                 count++;
-                day = day.AddDays(-1);
+                week = week.AddDays(-7);
             }
             return count;
         }
     }
 
-    private int BestStreak
+    private int BestWeekStreak
     {
         get
         {
             var best = 0;
             var run = 0;
             DateTime? previous = null;
-            foreach (var day in ActiveDays.OrderBy(d => d))
+            foreach (var week in ActiveWeeks.OrderBy(w => w))
             {
-                run = previous is not null && day == previous.Value.AddDays(1) ? run + 1 : 1;
+                run = previous is not null && week == previous.Value.AddDays(7) ? run + 1 : 1;
                 best = Math.Max(best, run);
-                previous = day;
+                previous = week;
             }
             return best;
         }

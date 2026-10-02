@@ -216,6 +216,19 @@ else if (mode == Mode.Running && runningSession is not null)
                 <div class="activity-timer">@FormattedRemaining</div>
             }
             <div class="activity-progress">@StatusDetail</div>
+            @if (isCompleted && pendingLogEntry is not null)
+            {
+                <div class="log-status">
+                    @if (logSaved)
+                    {
+                        <span>✓ Saved to your activity log</span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-success" @onclick="SaveToLog">Save to log</button>
+                    }
+                </div>
+            }
             <div class="activity-controls">
                 @if (isRunning)
                 {
@@ -271,6 +284,17 @@ else if (mode == Mode.Running && runningSession is not null)
     private bool isCompleted;
     private CancellationTokenSource? _cts;
     private readonly ActivityRecorder recorder = new();
+    private ActivityLogEntry? pendingLogEntry;
+    private bool logSaved;
+
+    private void SaveToLog()
+    {
+        if (pendingLogEntry is not null && !logSaved)
+        {
+            ActivityLog.Add(pendingLogEntry);
+            logSaved = true;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -480,6 +504,7 @@ else if (mode == Mode.Running && runningSession is not null)
         totalDurationSeconds = runBlocks.Sum(b => b.DurationSeconds);
         mode = Mode.Running;
         recorder.Start();
+        pendingLogEntry = null;
         await AdvanceBlockAsync();
         RunLoop();
     }
@@ -563,7 +588,12 @@ else if (mode == Mode.Running && runningSession is not null)
         {
             isCompleted = true;
             isRunning = false;
-            ActivityLog.Add(recorder.Complete(runningSession?.Name ?? "Advanced Interval", true, runBlocks.Select(b => (b.Kind.ToString(), b.DurationSeconds))));
+            pendingLogEntry = recorder.Complete(runningSession?.Name ?? "Advanced Interval", true, runBlocks.Select(b => (b.Kind.ToString(), b.DurationSeconds)));
+            logSaved = false;
+            if (AppSettings.Load().AutoSaveToLog)
+            {
+                SaveToLog();
+            }
             await Notifier.ClearTimerAsync();
             await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
             return;
@@ -638,7 +668,7 @@ else if (mode == Mode.Running && runningSession is not null)
         {
             if (isCompleted)
             {
-                return "You finished the activity. Saved to your activity log.";
+                return "You finished the activity.";
             }
 
             if (currentBlockIndex < 0 || currentBlockIndex >= runBlocks.Count)
