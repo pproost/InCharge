@@ -244,8 +244,6 @@ else if (mode == Mode.Running && runningSession is not null)
         Running
     }
 
-    private const int ProgressNotificationId = 20002;
-
     private Mode mode = Mode.List;
     private bool notificationsEnabled;
     private List<AdvancedSession> sessions = new();
@@ -488,9 +486,11 @@ else if (mode == Mode.Running && runningSession is not null)
         _cts?.Cancel();
         isRunning = false;
         isPaused = true;
-        _ = Notifier.NotifyAsync("InCharge", "Activity paused.");
-        var pausedDuring = currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count ? HeadingFor(runBlocks[currentBlockIndex].Kind) : "";
-        _ = Notifier.ShowFrozenProgressAsync(ProgressNotificationId, "Paused", $"{pausedDuring} - {FormatSeconds(Math.Max(0, remainingSeconds))} left");
+        if (currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count)
+        {
+            var block = runBlocks[currentBlockIndex];
+            _ = Notifier.ShowPausedAsync(HeadingFor(block.Kind), remainingSeconds, block.DurationSeconds);
+        }
     }
 
     private async Task ResumeActivity()
@@ -513,7 +513,7 @@ else if (mode == Mode.Running && runningSession is not null)
         isRunning = false;
         isPaused = false;
         isCompleted = false;
-        _ = Notifier.ClearProgressAsync(ProgressNotificationId);
+        _ = Notifier.ClearTimerAsync();
     }
 
     private void RunLoop()
@@ -558,29 +558,20 @@ else if (mode == Mode.Running && runningSession is not null)
         {
             isCompleted = true;
             isRunning = false;
+            await Notifier.ClearTimerAsync();
             await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
-            await Notifier.ClearProgressAsync(ProgressNotificationId);
             return;
         }
 
         var block = runBlocks[currentBlockIndex];
         remainingSeconds = block.DurationSeconds;
-        var label = block.Kind switch
-        {
-            BlockKind.Warmup => "Warm-up! Ease into it.",
-            BlockKind.Move => string.IsNullOrEmpty(block.Detail) ? "Start to move" : $"Start to move ({block.Detail})",
-            BlockKind.Rest => string.IsNullOrEmpty(block.Detail) ? "Slow down" : $"Slow down ({block.Detail})",
-            BlockKind.Cooldown => "Cool down! Nice and easy.",
-            _ => "InCharge"
-        };
-        await Notifier.NotifyAsync("InCharge", label);
-        await UpdateProgressAsync();
+        await Notifier.StartPhaseAsync(HeadingFor(block.Kind), block.Detail, remainingSeconds, block.DurationSeconds);
     }
 
     private Task UpdateProgressAsync()
     {
         var block = runBlocks[currentBlockIndex];
-        return Notifier.ShowProgressAsync(ProgressNotificationId, HeadingFor(block.Kind), block.Detail, remainingSeconds, block.DurationSeconds);
+        return Notifier.UpdateTimerAsync(HeadingFor(block.Kind), block.Detail, remainingSeconds, block.DurationSeconds);
     }
 
     private RenderFragment PlayIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5v11l10-5.5-10-5.5z" /></svg>;
@@ -658,7 +649,7 @@ else if (mode == Mode.Running && runningSession is not null)
         _cts?.Cancel();
         if (mode == Mode.Running && !isCompleted)
         {
-            _ = Notifier.ClearProgressAsync(ProgressNotificationId);
+            _ = Notifier.ClearTimerAsync();
         }
         return ValueTask.CompletedTask;
     }

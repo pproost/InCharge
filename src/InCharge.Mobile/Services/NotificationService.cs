@@ -28,27 +28,18 @@ public class NotificationService(AppSettingsService appSettings)
             return;
         }
 
-        // A fresh id (rather than reusing the previous one) is what makes Android buzz again
-        // and relay the cue to the watch, so the old one is cancelled instead of updated.
-        if (appSettings.Load().OnlyLatestNotification && _lastNotificationId > 0)
+        await LocalNotificationCenter.Current.Show(new NotificationRequest
         {
-            LocalNotificationCenter.Current.Cancel(_lastNotificationId);
-        }
-
-        var request = new NotificationRequest
-        {
-            NotificationId = ++_lastNotificationId,
+            NotificationId = NextId(),
             Title = title,
             Description = body,
             ReturningData = "incharge"
-        };
-
-        await LocalNotificationCenter.Current.Show(request);
+        });
     }
 
-    // Updated in place every second (same id, silent) so the remaining time can be the
-    // large title text - Android's chronometer only renders small in the header.
-    public async Task ShowProgressAsync(int progressNotificationId, string heading, string detail, int remainingSeconds, int totalSeconds)
+    // A new phase gets a fresh notification id: that is what makes the phone buzz and the
+    // watch relay the cue. The per-second updates below reuse the id silently.
+    public async Task StartPhaseAsync(string heading, string detail, int remainingSeconds, int totalSeconds)
     {
         await WaitUntilReadyAsync();
         if (LocalNotificationCenter.Current is null)
@@ -56,16 +47,64 @@ public class NotificationService(AppSettingsService appSettings)
             return;
         }
 
-        var remaining = Math.Max(0, remainingSeconds);
-        var request = new NotificationRequest
+        await LocalNotificationCenter.Current.Show(BuildTimer(NextId(), $"{heading}  {Format(remainingSeconds)}", detail, remainingSeconds, totalSeconds));
+    }
+
+    public async Task UpdateTimerAsync(string heading, string detail, int remainingSeconds, int totalSeconds)
+    {
+        await WaitUntilReadyAsync();
+        if (LocalNotificationCenter.Current is null || _lastNotificationId == 0)
         {
-            NotificationId = progressNotificationId,
-            Title = $"{heading}  {TimeSpan.FromSeconds(remaining):m\\:ss}",
+            return;
+        }
+
+        await LocalNotificationCenter.Current.Show(BuildTimer(_lastNotificationId, $"{heading}  {Format(remainingSeconds)}", detail, remainingSeconds, totalSeconds));
+    }
+
+    public async Task ShowPausedAsync(string heading, int remainingSeconds, int totalSeconds)
+    {
+        await WaitUntilReadyAsync();
+        if (LocalNotificationCenter.Current is null || _lastNotificationId == 0)
+        {
+            return;
+        }
+
+        await LocalNotificationCenter.Current.Show(BuildTimer(_lastNotificationId, $"Paused  {Format(remainingSeconds)}", heading, remainingSeconds, totalSeconds));
+    }
+
+    public async Task ClearTimerAsync()
+    {
+        await WaitUntilReadyAsync();
+        if (LocalNotificationCenter.Current is null || _lastNotificationId == 0)
+        {
+            return;
+        }
+
+        LocalNotificationCenter.Current.Cancel(_lastNotificationId);
+    }
+
+    private int NextId()
+    {
+        if (appSettings.Load().OnlyLatestNotification && _lastNotificationId > 0)
+        {
+            LocalNotificationCenter.Current?.Cancel(_lastNotificationId);
+        }
+        return ++_lastNotificationId;
+    }
+
+    // Deliberately not Ongoing: watch bridges such as the Fitbit app usually skip ongoing
+    // notifications, which would silence the phase cues.
+    private static NotificationRequest BuildTimer(int id, string title, string detail, int remainingSeconds, int totalSeconds)
+    {
+        var remaining = Math.Max(0, remainingSeconds);
+        return new NotificationRequest
+        {
+            NotificationId = id,
+            Title = title,
             Description = detail,
             ReturningData = "incharge",
             Android =
             {
-                Ongoing = true,
                 AutoCancel = false,
                 OnlyAlertOnce = true,
                 ProgressBar = new AndroidProgressBar
@@ -75,47 +114,9 @@ public class NotificationService(AppSettingsService appSettings)
                 }
             }
         };
-
-        await LocalNotificationCenter.Current.Show(request);
     }
 
-    // Same ongoing notification, but frozen (no chronometer) - used while the activity is paused.
-    public async Task ShowFrozenProgressAsync(int progressNotificationId, string title, string body)
-    {
-        await WaitUntilReadyAsync();
-        if (LocalNotificationCenter.Current is null)
-        {
-            return;
-        }
-
-        var request = new NotificationRequest
-        {
-            NotificationId = progressNotificationId,
-            Title = title,
-            Description = body,
-            ReturningData = "incharge",
-            Android =
-            {
-                Ongoing = true,
-                AutoCancel = false,
-                OnlyAlertOnce = true,
-                UsesChronometer = false
-            }
-        };
-
-        await LocalNotificationCenter.Current.Show(request);
-    }
-
-    public async Task ClearProgressAsync(int progressNotificationId)
-    {
-        await WaitUntilReadyAsync();
-        if (LocalNotificationCenter.Current is null)
-        {
-            return;
-        }
-
-        LocalNotificationCenter.Current.Cancel(progressNotificationId);
-    }
+    private static string Format(int seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"m\:ss");
 
     // LocalNotificationCenter.Current is populated by platform lifecycle events wired up
     // through UseLocalNotification() and can still be null for a brief moment while the
