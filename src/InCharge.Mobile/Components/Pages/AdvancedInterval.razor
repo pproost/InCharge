@@ -3,6 +3,7 @@
 @inject NotificationService Notifier
 @inject AppSettingsService AppSettings
 @inject AdvancedSessionService Sessions
+@inject ActivityLogService ActivityLog
 @implements IAsyncDisposable
 
 <PageTitle>Advanced Interval</PageTitle>
@@ -269,6 +270,7 @@ else if (mode == Mode.Running && runningSession is not null)
     private bool isPaused;
     private bool isCompleted;
     private CancellationTokenSource? _cts;
+    private readonly ActivityRecorder recorder = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -477,6 +479,7 @@ else if (mode == Mode.Running && runningSession is not null)
         isPaused = false;
         totalDurationSeconds = runBlocks.Sum(b => b.DurationSeconds);
         mode = Mode.Running;
+        recorder.Start();
         await AdvanceBlockAsync();
         RunLoop();
     }
@@ -486,6 +489,7 @@ else if (mode == Mode.Running && runningSession is not null)
         _cts?.Cancel();
         isRunning = false;
         isPaused = true;
+        recorder.Pause();
         if (currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count)
         {
             var block = runBlocks[currentBlockIndex];
@@ -497,6 +501,7 @@ else if (mode == Mode.Running && runningSession is not null)
     {
         isPaused = false;
         isRunning = true;
+        recorder.Resume();
         if (currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count)
         {
             await UpdateProgressAsync();
@@ -558,6 +563,7 @@ else if (mode == Mode.Running && runningSession is not null)
         {
             isCompleted = true;
             isRunning = false;
+            ActivityLog.Add(recorder.Complete(runningSession?.Name ?? "Advanced Interval", true, runBlocks.Select(b => (b.Kind.ToString(), b.DurationSeconds))));
             await Notifier.ClearTimerAsync();
             await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
             return;
@@ -632,7 +638,7 @@ else if (mode == Mode.Running && runningSession is not null)
         {
             if (isCompleted)
             {
-                return "You finished the activity.";
+                return "You finished the activity. Saved to your activity log.";
             }
 
             if (currentBlockIndex < 0 || currentBlockIndex >= runBlocks.Count)

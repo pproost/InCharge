@@ -1,0 +1,324 @@
+@page "/log"
+@using System.Globalization
+@using InCharge.Mobile.Services
+@inject ActivityLogService LogService
+
+<PageTitle>Activity Log</PageTitle>
+
+<h1>Activity Log</h1>
+
+@if (entries.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-icon">🏁</div>
+        <p class="mb-1"><strong>No activities yet.</strong></p>
+        <p class="text-muted">Finish a Basic or Advanced interval session and it shows up here, with your stats.</p>
+    </div>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="stat-tile">
+            <div class="stat-label">This week</div>
+            <div class="stat-value">@FormatDuration(WeekEntries.Sum(e => e.ActiveSeconds))</div>
+            <div class="stat-sub">@WeekEntries.Count() session(s)@WeekTrend</div>
+        </div>
+        <div class="stat-tile">
+            <div class="stat-label">Streak</div>
+            <div class="stat-value">@Streak <span class="stat-unit">day@(Streak == 1 ? "" : "s")</span></div>
+            <div class="stat-sub">Best: @BestStreak day@(BestStreak == 1 ? "" : "s")</div>
+        </div>
+        <div class="stat-tile">
+            <div class="stat-label">Move time</div>
+            <div class="stat-value">@FormatDuration(entries.Sum(e => e.MoveSeconds))</div>
+            <div class="stat-sub">all time</div>
+        </div>
+        <div class="stat-tile">
+            <div class="stat-label">Sessions</div>
+            <div class="stat-value">@entries.Count</div>
+            <div class="stat-sub">@FormatDuration(entries.Sum(e => e.ActiveSeconds)) total</div>
+        </div>
+    </div>
+
+    <section class="panel">
+        <div class="panel-header">
+            <h5 class="mb-0">Active minutes</h5>
+            <div class="btn-group btn-group-sm" role="group">
+                <button class="btn @(chartDays == 7 ? "btn-primary" : "btn-outline-primary")" @onclick="() => chartDays = 7">7 days</button>
+                <button class="btn @(chartDays == 30 ? "btn-primary" : "btn-outline-primary")" @onclick="() => chartDays = 30">30 days</button>
+            </div>
+        </div>
+        <div class="bar-chart @(chartDays == 30 ? "dense" : "")">
+            @{
+                var chart = ChartDays;
+                var maxSeconds = Math.Max(1, chart.Max(d => d.Total));
+            }
+            @foreach (var day in chart)
+            {
+                <div class="bar-col" title="@day.Date.ToString("ddd d MMM", Culture): @FormatDuration(day.Total)">
+                    <div class="bar-stack" style="height: @Percent(day.Total, maxSeconds)%">
+                        <div class="seg seg-extra" style="flex-grow: @day.Extra"></div>
+                        <div class="seg seg-rest" style="flex-grow: @day.Rest"></div>
+                        <div class="seg seg-move" style="flex-grow: @day.Move"></div>
+                    </div>
+                    <div class="bar-label">@(chartDays == 7 ? day.Date.ToString("ddd", Culture)[..2] : (day.Date.Day % 5 == 0 ? day.Date.Day.ToString() : ""))</div>
+                </div>
+            }
+        </div>
+        <div class="legend">
+            <span><i class="dot seg-move"></i>Move</span>
+            <span><i class="dot seg-rest"></i>Rest</span>
+            <span><i class="dot seg-extra"></i>Warm-up / cool-down</span>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h5>Last 12 weeks</h5>
+        <div class="heatmap">
+            @foreach (var week in HeatmapWeeks)
+            {
+                <div class="heat-col">
+                    @foreach (var cell in week)
+                    {
+                        <div class="heat-cell level-@cell.Level @(cell.IsFuture ? "future" : "")"
+                             title="@cell.Date.ToString("ddd d MMM", Culture): @FormatDuration(cell.Seconds)"></div>
+                    }
+                </div>
+            }
+        </div>
+        <div class="legend">
+            <span>Less</span>
+            @for (var level = 0; level <= 4; level++)
+            {
+                <i class="heat-cell level-@level"></i>
+            }
+            <span>More</span>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h5>Move vs. rest</h5>
+        @{
+            var move = entries.Sum(e => e.MoveSeconds);
+            var rest = entries.Sum(e => e.RestSeconds);
+            var extra = entries.Sum(e => e.WarmupSeconds + e.CooldownSeconds);
+            var total = Math.Max(1, move + rest + extra);
+        }
+        <div class="split-bar">
+            <div class="seg seg-move" style="width: @Percent(move, total)%"></div>
+            <div class="seg seg-rest" style="width: @Percent(rest, total)%"></div>
+            <div class="seg seg-extra" style="width: @Percent(extra, total)%"></div>
+        </div>
+        <div class="legend">
+            <span><i class="dot seg-move"></i>Move @Percent(move, total)%</span>
+            <span><i class="dot seg-rest"></i>Rest @Percent(rest, total)%</span>
+            <span><i class="dot seg-extra"></i>Other @Percent(extra, total)%</span>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h5>Records</h5>
+        <div class="records">
+            <div class="record">
+                <span class="record-icon">⏱️</span>
+                <div><div class="record-value">@FormatDuration(Longest.ActiveSeconds)</div><div class="record-label">Longest session · @Longest.CompletedAt.ToString("d MMM", Culture)</div></div>
+            </div>
+            <div class="record">
+                <span class="record-icon">🔥</span>
+                <div><div class="record-value">@FormatDuration(MostMove.MoveSeconds)</div><div class="record-label">Most move time · @MostMove.Name</div></div>
+            </div>
+            <div class="record">
+                <span class="record-icon">📅</span>
+                <div><div class="record-value">@FormatDuration(BestWeek.Seconds)</div><div class="record-label">Best week · week of @BestWeek.Start.ToString("d MMM", Culture)</div></div>
+            </div>
+            @if (FavoriteSession is not null)
+            {
+                <div class="record">
+                    <span class="record-icon">⭐</span>
+                    <div><div class="record-value">@FavoriteSession.Value.Name</div><div class="record-label">Favourite · done @FavoriteSession.Value.Count×</div></div>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="panel">
+        <h5>History</h5>
+        @foreach (var day in entries.OrderByDescending(e => e.CompletedAt).GroupBy(e => e.CompletedAt.Date))
+        {
+            <div class="history-day">@DayLabel(day.Key)</div>
+            @foreach (var entry in day)
+            {
+                <div class="history-item">
+                    <div class="history-main">
+                        <div class="history-title">
+                            <strong>@entry.Name</strong>
+                            <span class="badge @(entry.IsAdvanced ? "text-bg-primary" : "text-bg-secondary")">@(entry.IsAdvanced ? "Advanced" : "Basic")</span>
+                        </div>
+                        <div class="small text-muted">
+                            @entry.StartedAt.ToString("HH:mm") · @FormatDuration(entry.ActiveSeconds) · @entry.MoveBlocks move block@(entry.MoveBlocks == 1 ? "" : "s")
+                            @if (entry.PauseCount > 0)
+                            {
+                                <span> · paused @entry.PauseCount× (@FormatDuration(entry.PausedSeconds))</span>
+                            }
+                        </div>
+                        <div class="mini-bar">
+                            <div class="seg seg-extra" style="flex-grow: @entry.WarmupSeconds"></div>
+                            <div class="seg seg-move" style="flex-grow: @entry.MoveSeconds"></div>
+                            <div class="seg seg-rest" style="flex-grow: @entry.RestSeconds"></div>
+                            <div class="seg seg-extra" style="flex-grow: @entry.CooldownSeconds"></div>
+                        </div>
+                    </div>
+                    @if (pendingDeleteId == entry.Id)
+                    {
+                        <button class="btn btn-danger btn-sm" @onclick="() => ConfirmDelete(entry.Id)">Delete?</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-danger btn-sm" @onclick="() => pendingDeleteId = entry.Id" title="Delete" aria-label="Delete">✕</button>
+                    }
+                </div>
+            }
+        }
+    </section>
+}
+
+@code {
+    private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("en-GB");
+
+    private List<ActivityLogEntry> entries = new();
+    private int chartDays = 7;
+    private string? pendingDeleteId;
+
+    protected override void OnInitialized() => entries = LogService.LoadAll();
+
+    private void ConfirmDelete(string id)
+    {
+        LogService.Delete(id);
+        entries = LogService.LoadAll();
+        pendingDeleteId = null;
+    }
+
+    private static DateTime Today => DateTime.Today;
+
+    private static DateTime StartOfWeek(DateTime date) => date.Date.AddDays(-(((int)date.DayOfWeek + 6) % 7));
+
+    private IEnumerable<ActivityLogEntry> WeekEntries => entries.Where(e => e.CompletedAt.Date >= StartOfWeek(Today));
+
+    private string WeekTrend
+    {
+        get
+        {
+            var thisWeek = WeekEntries.Sum(e => e.ActiveSeconds);
+            var lastStart = StartOfWeek(Today).AddDays(-7);
+            var lastWeek = entries.Where(e => e.CompletedAt.Date >= lastStart && e.CompletedAt.Date < StartOfWeek(Today)).Sum(e => e.ActiveSeconds);
+            if (lastWeek == 0)
+            {
+                return "";
+            }
+            var change = (int)Math.Round((thisWeek - lastWeek) * 100.0 / lastWeek);
+            return change >= 0 ? $" · ▲{change}% vs last week" : $" · ▼{-change}% vs last week";
+        }
+    }
+
+    private HashSet<DateTime> ActiveDays => entries.Select(e => e.CompletedAt.Date).ToHashSet();
+
+    // Counts back from today; a day without activity yet today doesn't break yesterday's streak.
+    private int Streak
+    {
+        get
+        {
+            var days = ActiveDays;
+            var day = days.Contains(Today) ? Today : Today.AddDays(-1);
+            var count = 0;
+            while (days.Contains(day))
+            {
+                count++;
+                day = day.AddDays(-1);
+            }
+            return count;
+        }
+    }
+
+    private int BestStreak
+    {
+        get
+        {
+            var best = 0;
+            var run = 0;
+            DateTime? previous = null;
+            foreach (var day in ActiveDays.OrderBy(d => d))
+            {
+                run = previous is not null && day == previous.Value.AddDays(1) ? run + 1 : 1;
+                best = Math.Max(best, run);
+                previous = day;
+            }
+            return best;
+        }
+    }
+
+    private record DayTotals(DateTime Date, int Move, int Rest, int Extra)
+    {
+        public int Total => Move + Rest + Extra;
+    }
+
+    private List<DayTotals> ChartDays => Enumerable.Range(0, chartDays)
+        .Select(i => Today.AddDays(i - chartDays + 1))
+        .Select(date =>
+        {
+            var day = entries.Where(e => e.CompletedAt.Date == date).ToList();
+            return new DayTotals(date, day.Sum(e => e.MoveSeconds), day.Sum(e => e.RestSeconds), day.Sum(e => e.WarmupSeconds + e.CooldownSeconds));
+        })
+        .ToList();
+
+    private record HeatCell(DateTime Date, int Seconds, int Level, bool IsFuture);
+
+    private List<List<HeatCell>> HeatmapWeeks
+    {
+        get
+        {
+            var perDay = entries.GroupBy(e => e.CompletedAt.Date).ToDictionary(g => g.Key, g => g.Sum(e => e.ActiveSeconds));
+            var max = Math.Max(1, perDay.Values.DefaultIfEmpty(0).Max());
+            var firstMonday = StartOfWeek(Today).AddDays(-7 * 11);
+            return Enumerable.Range(0, 12).Select(w => Enumerable.Range(0, 7).Select(d =>
+            {
+                var date = firstMonday.AddDays(w * 7 + d);
+                var seconds = perDay.GetValueOrDefault(date);
+                var level = seconds == 0 ? 0 : Math.Clamp((int)Math.Ceiling(seconds * 4.0 / max), 1, 4);
+                return new HeatCell(date, seconds, level, date > Today);
+            }).ToList()).ToList();
+        }
+    }
+
+    private ActivityLogEntry Longest => entries.MaxBy(e => e.ActiveSeconds)!;
+
+    private ActivityLogEntry MostMove => entries.MaxBy(e => e.MoveSeconds)!;
+
+    private (DateTime Start, int Seconds) BestWeek => entries
+        .GroupBy(e => StartOfWeek(e.CompletedAt))
+        .Select(g => (g.Key, g.Sum(e => e.ActiveSeconds)))
+        .MaxBy(w => w.Item2);
+
+    private (string Name, int Count)? FavoriteSession
+    {
+        get
+        {
+            var top = entries.GroupBy(e => e.Name).Select(g => (g.Key, g.Count())).MaxBy(g => g.Item2);
+            return top.Item2 >= 2 ? top : null;
+        }
+    }
+
+    private static string DayLabel(DateTime date) =>
+        date == Today ? "Today"
+        : date == Today.AddDays(-1) ? "Yesterday"
+        : date.ToString("dddd d MMMM", Culture);
+
+    private static int Percent(int value, int total) => (int)Math.Round(value * 100.0 / Math.Max(1, total));
+
+    private static string FormatDuration(int seconds)
+    {
+        var span = TimeSpan.FromSeconds(seconds);
+        return span.TotalHours >= 1
+            ? $"{(int)span.TotalHours}h {span.Minutes:00}m"
+            : span.TotalMinutes >= 1 ? $"{span.Minutes}m {span.Seconds:00}s" : $"{span.Seconds}s";
+    }
+}

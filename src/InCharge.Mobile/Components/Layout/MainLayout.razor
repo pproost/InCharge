@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
 
 <div class="app-shell">
     <header class="app-header">
@@ -12,6 +14,7 @@
             <nav class="nav-drawer" @onclick:stopPropagation="true">
                 <NavLink href="/" Match="NavLinkMatch.All" class="nav-link" @onclick="CloseMenu">Basic Interval</NavLink>
                 <NavLink href="advanced" class="nav-link" @onclick="CloseMenu">Advanced Interval</NavLink>
+                <NavLink href="log" class="nav-link" @onclick="CloseMenu">Activity Log</NavLink>
                 <NavLink href="settings" class="nav-link" @onclick="CloseMenu">Settings</NavLink>
             </nav>
         </div>
@@ -23,9 +26,37 @@
 </div>
 
 @code {
+    private const string LastPageKey = "incharge.lastPage";
+
+    // Settings is deliberately left out: the app should never reopen there.
+    private static readonly string[] RememberedPages = ["", "advanced", "log"];
+
     private bool isMenuOpen;
+
+    protected override void OnInitialized()
+    {
+        var lastPage = Preferences.Default.Get(LastPageKey, string.Empty);
+        if (RememberedPages.Contains(lastPage) && lastPage != CurrentPage)
+        {
+            Navigation.NavigateTo("/" + lastPage, replace: true);
+        }
+
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private string CurrentPage => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0];
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (RememberedPages.Contains(CurrentPage))
+        {
+            Preferences.Default.Set(LastPageKey, CurrentPage);
+        }
+    }
 
     private void ToggleMenu() => isMenuOpen = !isMenuOpen;
 
     private void CloseMenu() => isMenuOpen = false;
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
 }

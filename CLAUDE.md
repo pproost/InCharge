@@ -10,6 +10,9 @@ Android companion app for interval training cues that relay to a Fitbit Charge 6
 ## Pages & services
 - `Pages/BasicInterval.razor` (`/`): duration unit, move/rest durations, repeats, optional warm-up/cool-down. With cool-down on, the trailing Rest is skipped.
 - `Pages/AdvancedInterval.razor` (`/advanced`): saved named sessions → groups (repeat count) of Move/Rest blocks, optional warm-up/cool-down. `BuildRunBlocks` flattens to a run list (also used for the list summary).
+- `Pages/ActivityLog.razor` (`/log`): stat tiles (week + trend, streak, move time, sessions), stacked daily bar chart (7/30 days), 12-week heatmap, move/rest split, records, history with delete. Charts are plain CSS/flex, no library.
+- `Services/ActivityLogService.cs`: log entries (Preferences key `incharge.activityLog`) plus `ActivityRecorder`, which both interval pages use to track start/pauses and log a run only when it fully completes.
+- `Layout/MainLayout.razor`: remembers the last page (`/`, `/advanced`, `/log`; never `/settings`) and reopens it on launch.
 - `Pages/Settings.razor` (`/settings`): notification permission/test, "only show latest notification" (default on), "show total duration on completion".
 - `Services/NotificationService.cs`: one notification per phase acts as both cue and timer. `StartPhaseAsync` posts it under a new id (so the phone/watch buzz; the previous one is cancelled when "only latest" is on), `UpdateTimerAsync` refreshes it silently every second (remaining time in the title + progress bar), `ShowPausedAsync` while paused, `ClearTimerAsync` on stop/complete, `NotifyAsync` for plain one-off messages (completion, test). Not marked Ongoing on purpose: Fitbit tends to skip ongoing notifications.
 - `Services/AdvancedSessionService.cs`: migrates old flat `Blocks` sessions into a single group.

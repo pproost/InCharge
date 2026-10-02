@@ -3,6 +3,7 @@
 @using InCharge.Mobile.Services
 @inject NotificationService Notifier
 @inject AppSettingsService AppSettings
+@inject ActivityLogService ActivityLog
 @implements IAsyncDisposable
 
 <PageTitle>Basic Interval</PageTitle>
@@ -243,6 +244,7 @@
     private bool isPaused;
     private bool isCompleted;
     private CancellationTokenSource? _cts;
+    private readonly ActivityRecorder recorder = new();
 
     private bool HasStarted => currentPhaseIndex >= 0;
     private bool IsConfigLocked => HasStarted;
@@ -353,6 +355,7 @@
         {
             isPaused = false;
             isRunning = true;
+            recorder.Resume();
             if (currentPhaseIndex >= 0 && currentPhaseIndex < phases.Count)
             {
                 await UpdateProgressAsync();
@@ -367,6 +370,7 @@
         currentPhaseIndex = -1;
         isCompleted = false;
         isRunning = true;
+        recorder.Start();
         await AdvancePhaseAsync();
         RunLoop();
     }
@@ -376,6 +380,7 @@
         _cts?.Cancel();
         isRunning = false;
         isPaused = true;
+        recorder.Pause();
         if (currentPhaseIndex >= 0 && currentPhaseIndex < phases.Count)
         {
             var phase = phases[currentPhaseIndex];
@@ -437,6 +442,7 @@
         {
             isCompleted = true;
             isRunning = false;
+            ActivityLog.Add(recorder.Complete("Basic Interval", false, phases.Select(p => (p.Type.ToString(), p.DurationSeconds))));
             await Notifier.ClearTimerAsync();
             await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
             return;
@@ -512,7 +518,7 @@
         {
             if (isCompleted)
             {
-                return "You finished the activity.";
+                return "You finished the activity. Saved to your activity log.";
             }
 
             if (currentPhaseIndex < 0 || currentPhaseIndex >= phases.Count)
