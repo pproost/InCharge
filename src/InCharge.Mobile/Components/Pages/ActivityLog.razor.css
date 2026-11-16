@@ -233,3 +233,61 @@
 .mini-bar .seg {
     flex-basis: 0;
 }
+
+.filter-chips {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    margin-bottom: 1rem;
+}
+
+.filter-chip {
+    flex: none;
+    background: white;
+    color: #03173d;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    padding: 0.3rem 0.85rem;
+    font-size: 0.9rem;
+}
+
+.filter-chip.selected {
+    background: #03173d;
+    color: white;
+    border-color: #03173d;
+}
+
+.type-total + .type-total {
+    margin-top: 0.65rem;
+}
+
+.type-total-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+
+.type-total-track {
+    height: 10px;
+    border-radius: 5px;
+    background: #e2e8f0;
+    overflow: hidden;
+}
+
+.type-total-fill {
+    height: 100%;
+    border-radius: 5px;
+    background: #03173d;
+}
+
+.type-select {
+    border: none;
+    background: transparent;
+    color: #475569;
+    font-size: 0.85rem;
+    padding: 0;
+    margin: 0.1rem 0;
+}

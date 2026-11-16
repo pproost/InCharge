@@ -3,6 +3,7 @@
 @inject NotificationService Notifier
 @inject AppSettingsService AppSettings
 @inject ActivityLogService LogService
+@inject ActivityTypeService TypeService
 
 <PageTitle>Settings</PageTitle>
 
@@ -78,6 +79,47 @@
 </section>
 
 <section class="settings-section">
+    <h2 class="section-title">Activity types</h2>
+    <div class="settings-card">
+        @foreach (var type in types)
+        {
+            <div class="setting-row type-row">
+                <select class="form-select icon-select" value="@type.Icon" @onchange="e => UpdateType(type, t => t.Icon = e.Value?.ToString() ?? t.Icon)" aria-label="Icon">
+                    @foreach (var icon in ActivityTypeService.Icons)
+                    {
+                        <option value="@icon">@icon</option>
+                    }
+                </select>
+                <input class="form-control" value="@type.Name" aria-label="Name"
+                       @onchange="e => UpdateType(type, t => t.Name = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? t.Name : e.Value!.ToString()!.Trim())" />
+                @if (pendingDeleteTypeId == type.Id)
+                {
+                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteType(type)">Delete?</button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-danger btn-sm" @onclick="() => pendingDeleteTypeId = type.Id" title="Delete" aria-label="Delete">✕</button>
+                }
+            </div>
+        }
+        <div class="setting-row type-row">
+            <select class="form-select icon-select" @bind="newTypeIcon" aria-label="Icon for new type">
+                @foreach (var icon in ActivityTypeService.Icons)
+                {
+                    <option value="@icon">@icon</option>
+                }
+            </select>
+            <input class="form-control" placeholder="New type, e.g. Rowing" @bind="newTypeName" @bind:event="oninput" aria-label="New type name" />
+            <button class="btn btn-primary btn-sm" @onclick="AddType" disabled="@string.IsNullOrWhiteSpace(newTypeName)">Add</button>
+        </div>
+    </div>
+    <p class="section-footnote">
+        Pick a type on the completion screen, or set a default per Advanced session. Deleting a type
+        keeps the logged activities; they just show up without a type.
+    </p>
+</section>
+
+<section class="settings-section">
     <h2 class="section-title">Data</h2>
     <div class="settings-card">
         <div class="setting-row">
@@ -95,10 +137,39 @@
     private bool notificationsEnabled;
     private string? message;
     private int sendCount;
+    private List<ActivityType> types = new();
+    private string newTypeName = "";
+    private string newTypeIcon = ActivityTypeService.Icons[0];
+    private string? pendingDeleteTypeId;
+
+    private void UpdateType(ActivityType type, Action<ActivityType> change)
+    {
+        change(type);
+        TypeService.SaveAll(types);
+    }
+
+    private void AddType()
+    {
+        if (string.IsNullOrWhiteSpace(newTypeName))
+        {
+            return;
+        }
+        types.Add(new ActivityType { Name = newTypeName.Trim(), Icon = newTypeIcon });
+        TypeService.SaveAll(types);
+        newTypeName = "";
+    }
+
+    private void DeleteType(ActivityType type)
+    {
+        types.Remove(type);
+        TypeService.SaveAll(types);
+        pendingDeleteTypeId = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {
         settings = AppSettings.Load();
+        types = TypeService.LoadAll();
         notificationsEnabled = await Notifier.AreNotificationsEnabledAsync();
     }
 

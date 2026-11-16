@@ -22,6 +22,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<AppSettingsService>();
 		builder.Services.AddSingleton<AdvancedSessionService>();
 		builder.Services.AddSingleton<ActivityLogService>();
+		builder.Services.AddSingleton<ActivityTypeService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

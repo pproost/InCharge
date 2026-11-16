@@ -1,0 +1,40 @@
+.completion-panel {
+    margin: -1rem 0 1.75rem;
+}
+
+.type-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9fb3d9;
+    margin-bottom: 0.5rem;
+}
+
+.type-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.type-chip {
+    background: transparent;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    border-radius: 999px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.95rem;
+}
+
+.type-chip.selected {
+    background: white;
+    color: #03173d;
+    border-color: white;
+    font-weight: 600;
+}
+
+.saved-note {
+    margin-top: 0.85rem;
+    color: #86efac;
+    font-weight: 600;
+}

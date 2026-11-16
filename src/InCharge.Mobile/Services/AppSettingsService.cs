@@ -7,6 +7,7 @@ public class AppSettings
     public bool ShowDurationOnComplete { get; set; } = true;
     public bool OnlyLatestNotification { get; set; } = true;
     public bool AutoSaveToLog { get; set; } = true;
+    public string? LastTypeId { get; set; }
 }
 
 public class AppSettingsService

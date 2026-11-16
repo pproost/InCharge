@@ -1,0 +1,48 @@
+@using InCharge.Mobile.Services
+@inject ActivityTypeService Types
+@inject ActivityLogService LogService
+@inject AppSettingsService AppSettings
+
+<div class="completion-panel">
+    @if (Types.LoadAll().Count > 0)
+    {
+        <div class="type-label">Activity type</div>
+        <div class="type-chips">
+            @foreach (var type in Types.LoadAll())
+            {
+                <button class="type-chip @(Entry.TypeId == type.Id ? "selected" : "")" @onclick="() => SelectType(type.Id)">
+                    <span>@type.Icon</span> @type.Name
+                </button>
+            }
+        </div>
+    }
+
+    @if (Saved)
+    {
+        <div class="saved-note">✓ Saved to your activity log</div>
+    }
+    else
+    {
+        <button class="btn btn-success mt-2" @onclick="OnSave">Save to log</button>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ActivityLogEntry Entry { get; set; } = default!;
+    [Parameter] public bool Saved { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+
+    private void SelectType(string id)
+    {
+        Entry.TypeId = Entry.TypeId == id ? null : id;
+
+        var settings = AppSettings.Load();
+        settings.LastTypeId = Entry.TypeId;
+        AppSettings.Save(settings);
+
+        if (Saved)
+        {
+            LogService.SaveChanges();
+        }
+    }
+}

@@ -23,6 +23,7 @@ public class AdvancedSession
     public int WarmupDurationSeconds { get; set; } = 300;
     public bool CooldownEnabled { get; set; }
     public int CooldownDurationSeconds { get; set; } = 300;
+    public string? TypeId { get; set; }
     public List<IntervalGroup> Groups { get; set; } = new();
 }
 
@@ -74,6 +75,7 @@ public class AdvancedSessionService
             WarmupDurationSeconds = stored.WarmupDurationSeconds,
             CooldownEnabled = stored.CooldownEnabled,
             CooldownDurationSeconds = stored.CooldownDurationSeconds,
+            TypeId = stored.TypeId,
             Groups = groups
         };
     }
@@ -87,6 +89,7 @@ public class AdvancedSessionService
         public int WarmupDurationSeconds { get; set; } = 300;
         public bool CooldownEnabled { get; set; }
         public int CooldownDurationSeconds { get; set; } = 300;
+    public string? TypeId { get; set; }
         public List<IntervalGroup>? Groups { get; set; }
         public List<IntervalBlock>? Blocks { get; set; }
     }

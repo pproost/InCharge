@@ -2,12 +2,13 @@
 @using System.Globalization
 @using InCharge.Mobile.Services
 @inject ActivityLogService LogService
+@inject ActivityTypeService Types
 
 <PageTitle>Activity Log</PageTitle>
 
 <h1>Activity Log</h1>
 
-@if (entries.Count == 0)
+@if (allEntries.Count == 0)
 {
     <div class="empty-state">
         <div class="empty-icon">🏁</div>
@@ -16,6 +17,28 @@
     </div>
 }
 else
+{
+    @if (UsedTypes.Count > 0)
+    {
+        <div class="filter-chips">
+            <button class="filter-chip @(filterTypeId is null ? "selected" : "")" @onclick="() => SetFilter(null)">All</button>
+            @foreach (var type in UsedTypes)
+            {
+                <button class="filter-chip @(filterTypeId == type.Id ? "selected" : "")" @onclick="() => SetFilter(type.Id)">@type.Icon @type.Name</button>
+            }
+            @if (allEntries.Any(e => Types.Find(e.TypeId) is null))
+            {
+                <button class="filter-chip @(filterTypeId == NoTypeFilter ? "selected" : "")" @onclick="() => SetFilter(NoTypeFilter)">No type</button>
+            }
+        </div>
+    }
+}
+
+@if (allEntries.Count > 0 && entries.Count == 0)
+{
+    <p class="text-muted">No activities of this type yet.</p>
+}
+else if (entries.Count > 0)
 {
     <div class="stat-grid">
         <div class="stat-tile">
@@ -96,6 +119,28 @@ else
         </div>
     </section>
 
+    @if (filterTypeId is null && TypeTotals.Count > 1)
+    {
+        <section class="panel">
+            <h5>By type</h5>
+            @{
+                var topSeconds = Math.Max(1, TypeTotals.Max(t => t.Seconds));
+            }
+            @foreach (var typeTotal in TypeTotals)
+            {
+                <div class="type-total">
+                    <div class="type-total-label">
+                        <span>@typeTotal.Icon @typeTotal.Name</span>
+                        <span class="text-muted">@typeTotal.Count× · @FormatDuration(typeTotal.Seconds)</span>
+                    </div>
+                    <div class="type-total-track">
+                        <div class="type-total-fill" style="width: @Percent(typeTotal.Seconds, topSeconds)%"></div>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+
     <section class="panel">
         <h5>Move vs. rest</h5>
         @{
@@ -153,7 +198,21 @@ else
                         <div class="history-title">
                             <strong>@entry.Name</strong>
                             <span class="badge @(entry.IsAdvanced ? "text-bg-primary" : "text-bg-secondary")">@(entry.IsAdvanced ? "Advanced" : "Basic")</span>
+                            @if (entry.FinishedEarly)
+                            {
+                                <span class="badge text-bg-warning">Finished early</span>
+                            }
                         </div>
+                        @if (Types.LoadAll().Count > 0)
+                        {
+                            <select class="type-select" value="@(Types.Find(entry.TypeId)?.Id ?? "")" @onchange="e => ChangeType(entry, e.Value?.ToString())" aria-label="Activity type">
+                                <option value="">No type</option>
+                                @foreach (var type in Types.LoadAll())
+                                {
+                                    <option value="@type.Id">@type.Icon @type.Name</option>
+                                }
+                            </select>
+                        }
                         <div class="small text-muted">
                             @entry.StartedAt.ToString("HH:mm") · @FormatDuration(entry.ActiveSeconds) · @entry.MoveBlocks move block@(entry.MoveBlocks == 1 ? "" : "s")
                             @if (entry.PauseCount > 0)
@@ -185,18 +244,60 @@ else
 @code {
     private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("en-GB");
 
+    private const string NoTypeFilter = "none";
+
+    private List<ActivityLogEntry> allEntries = new();
     private List<ActivityLogEntry> entries = new();
+    private string? filterTypeId;
     private int chartDays = 7;
     private string? pendingDeleteId;
 
-    protected override void OnInitialized() => entries = LogService.LoadAll();
+    protected override void OnInitialized()
+    {
+        allEntries = LogService.LoadAll();
+        ApplyFilter();
+    }
+
+    private void SetFilter(string? typeId)
+    {
+        filterTypeId = typeId;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        entries = filterTypeId switch
+        {
+            null => allEntries.ToList(),
+            NoTypeFilter => allEntries.Where(e => Types.Find(e.TypeId) is null).ToList(),
+            _ => allEntries.Where(e => e.TypeId == filterTypeId).ToList()
+        };
+    }
+
+    private void ChangeType(ActivityLogEntry entry, string? typeId)
+    {
+        entry.TypeId = string.IsNullOrEmpty(typeId) ? null : typeId;
+        LogService.SaveChanges();
+        ApplyFilter();
+    }
 
     private void ConfirmDelete(string id)
     {
         LogService.Delete(id);
-        entries = LogService.LoadAll();
+        allEntries = LogService.LoadAll();
+        ApplyFilter();
         pendingDeleteId = null;
     }
+
+    private List<ActivityType> UsedTypes => Types.LoadAll().Where(t => allEntries.Any(e => e.TypeId == t.Id)).ToList();
+
+    private record TypeTotal(string Icon, string Name, int Count, int Seconds);
+
+    private List<TypeTotal> TypeTotals => allEntries
+        .GroupBy(e => Types.Find(e.TypeId))
+        .Select(g => new TypeTotal(g.Key?.Icon ?? "·", g.Key?.Name ?? "No type", g.Count(), g.Sum(e => e.ActiveSeconds)))
+        .OrderByDescending(t => t.Seconds)
+        .ToList();
 
     private static DateTime Today => DateTime.Today;
 

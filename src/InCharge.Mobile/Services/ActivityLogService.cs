@@ -7,6 +7,8 @@ public class ActivityLogEntry
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     public bool IsAdvanced { get; set; }
+    public string? TypeId { get; set; }
+    public bool FinishedEarly { get; set; }
     public DateTime StartedAt { get; set; }
     public DateTime CompletedAt { get; set; }
     public int MoveSeconds { get; set; }
@@ -54,6 +56,9 @@ public class ActivityLogService
         Save(all);
     }
 
+    // Entries are edited in place (e.g. their type), this just persists the current list.
+    public void SaveChanges() => Save(LoadAll());
+
     public void Delete(string id)
     {
         var all = LoadAll();
@@ -100,14 +105,17 @@ public class ActivityRecorder
         }
     }
 
-    public ActivityLogEntry Complete(string name, bool isAdvanced, IEnumerable<(string Kind, int Seconds)> phases)
+    // "phases" is what was actually done: for an early finish that includes the partial current phase.
+    public ActivityLogEntry Complete(string name, bool isAdvanced, IEnumerable<(string Kind, int Seconds)> phases, bool finishedEarly = false)
     {
+        Resume();
         var list = phases.ToList();
         int Sum(string kind) => list.Where(p => p.Kind == kind).Sum(p => p.Seconds);
         return new ActivityLogEntry
         {
             Name = name,
             IsAdvanced = isAdvanced,
+            FinishedEarly = finishedEarly,
             StartedAt = _startedAt,
             CompletedAt = DateTime.Now,
             MoveSeconds = Sum("Move"),

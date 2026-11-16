@@ -4,6 +4,7 @@
 @inject AppSettingsService AppSettings
 @inject AdvancedSessionService Sessions
 @inject ActivityLogService ActivityLog
+@inject ActivityTypeService Types
 @implements IAsyncDisposable
 
 <PageTitle>Advanced Interval</PageTitle>
@@ -58,6 +59,20 @@ else if (mode == Mode.Edit)
         <label class="form-label" for="sessionName">Name</label>
         <input id="sessionName" class="form-control" @bind="editName" />
     </div>
+
+    @if (Types.LoadAll().Count > 0)
+    {
+        <div class="mb-3" style="max-width: 480px;">
+            <label class="form-label" for="sessionType">Activity type</label>
+            <select id="sessionType" class="form-select" @bind="editTypeId">
+                <option value="">None (use the last one picked)</option>
+                @foreach (var type in Types.LoadAll())
+                {
+                    <option value="@type.Id">@type.Icon @type.Name</option>
+                }
+            </select>
+        </div>
+    }
 
     <div class="mb-3">
         <label class="form-label d-block">Duration unit for this session</label>
@@ -218,16 +233,7 @@ else if (mode == Mode.Running && runningSession is not null)
             <div class="activity-progress">@StatusDetail</div>
             @if (isCompleted && pendingLogEntry is not null)
             {
-                <div class="log-status">
-                    @if (logSaved)
-                    {
-                        <span>✓ Saved to your activity log</span>
-                    }
-                    else
-                    {
-                        <button class="btn btn-success" @onclick="SaveToLog">Save to log</button>
-                    }
-                </div>
+                <CompletionLogPanel @key="pendingLogEntry.Id" Entry="pendingLogEntry" Saved="logSaved" OnSave="SaveToLog" />
             }
             <div class="activity-controls">
                 @if (isRunning)
@@ -240,6 +246,12 @@ else if (mode == Mode.Running && runningSession is not null)
                 {
                     <button class="btn btn-light btn-icon" @onclick="ResumeActivity" title="Resume" aria-label="Resume">
                         @PlayIcon
+                    </button>
+                }
+                @if (!isCompleted)
+                {
+                    <button class="btn btn-success btn-icon" @onclick="FinishNow" title="Finish now and save" aria-label="Finish now and save">
+                        @FinishIcon
                     </button>
                 }
                 <button class="btn btn-outline-light btn-icon" @onclick="StopRun" title="Stop" aria-label="Stop">
@@ -268,6 +280,7 @@ else if (mode == Mode.Running && runningSession is not null)
     private bool editUseMinutes = true;
     private bool editWarmupEnabled;
     private int editWarmupDurationSeconds = 300;
+    private string editTypeId = "";
     private bool editCooldownEnabled;
     private int editCooldownDurationSeconds = 300;
     private List<IntervalGroup> editGroups = new();
@@ -286,6 +299,43 @@ else if (mode == Mode.Running && runningSession is not null)
     private readonly ActivityRecorder recorder = new();
     private ActivityLogEntry? pendingLogEntry;
     private bool logSaved;
+
+    // Ends the activity right away and logs only what was actually done, e.g. to skip a long cool-down.
+    private async Task FinishNow()
+    {
+        if (isCompleted || currentBlockIndex < 0 || currentBlockIndex >= runBlocks.Count)
+        {
+            return;
+        }
+
+        _cts?.Cancel();
+        var done = runBlocks.Take(currentBlockIndex).Select(b => (b.Kind.ToString(), b.DurationSeconds)).ToList();
+        var current = runBlocks[currentBlockIndex];
+        var elapsed = current.DurationSeconds - Math.Max(0, remainingSeconds);
+        if (elapsed > 0)
+        {
+            done.Add((current.Kind.ToString(), elapsed));
+        }
+        currentBlockIndex = runBlocks.Count;
+        await CompleteAsync(done, finishedEarly: true);
+    }
+
+    private async Task CompleteAsync(IEnumerable<(string Kind, int Seconds)> done, bool finishedEarly)
+    {
+        isCompleted = true;
+        isRunning = false;
+        isPaused = false;
+        pendingLogEntry = recorder.Complete(runningSession?.Name ?? "Advanced Interval", true, done, finishedEarly);
+        pendingLogEntry.TypeId = Types.Resolve(runningSession?.TypeId, AppSettings.Load().LastTypeId);
+        totalDurationSeconds = pendingLogEntry.ActiveSeconds;
+        logSaved = false;
+        if (AppSettings.Load().AutoSaveToLog)
+        {
+            SaveToLog();
+        }
+        await Notifier.ClearTimerAsync();
+        await Notifier.NotifyAsync("InCharge", finishedEarly ? "Activity finished. Nice work!" : "Activity complete. Great job!");
+    }
 
     private void SaveToLog()
     {
@@ -311,6 +361,7 @@ else if (mode == Mode.Running && runningSession is not null)
         editWarmupDurationSeconds = 300;
         editCooldownEnabled = false;
         editCooldownDurationSeconds = 300;
+        editTypeId = "";
         editGroups = new List<IntervalGroup>
         {
             new() { RepeatCount = 1, Blocks = new List<IntervalBlock> { new() { IsMove = true, DurationSeconds = 60 } } }
@@ -328,6 +379,7 @@ else if (mode == Mode.Running && runningSession is not null)
         editWarmupDurationSeconds = session.WarmupDurationSeconds;
         editCooldownEnabled = session.CooldownEnabled;
         editCooldownDurationSeconds = session.CooldownDurationSeconds;
+        editTypeId = Types.Resolve(session.TypeId) ?? "";
         editGroups = session.Groups.Select(g => new IntervalGroup
         {
             RepeatCount = g.RepeatCount,
@@ -416,6 +468,7 @@ else if (mode == Mode.Running && runningSession is not null)
         session.WarmupDurationSeconds = editWarmupDurationSeconds;
         session.CooldownEnabled = editCooldownEnabled;
         session.CooldownDurationSeconds = editCooldownDurationSeconds;
+        session.TypeId = string.IsNullOrEmpty(editTypeId) ? null : editTypeId;
         session.Groups = editGroups.Where(g => g.Blocks.Count > 0).ToList();
 
         if (editingSessionId is null)
@@ -586,16 +639,7 @@ else if (mode == Mode.Running && runningSession is not null)
         currentBlockIndex++;
         if (currentBlockIndex >= runBlocks.Count)
         {
-            isCompleted = true;
-            isRunning = false;
-            pendingLogEntry = recorder.Complete(runningSession?.Name ?? "Advanced Interval", true, runBlocks.Select(b => (b.Kind.ToString(), b.DurationSeconds)));
-            logSaved = false;
-            if (AppSettings.Load().AutoSaveToLog)
-            {
-                SaveToLog();
-            }
-            await Notifier.ClearTimerAsync();
-            await Notifier.NotifyAsync("InCharge", "Activity complete. Great job!");
+            await CompleteAsync(runBlocks.Select(b => (b.Kind.ToString(), b.DurationSeconds)), finishedEarly: false);
             return;
         }
 
@@ -615,6 +659,8 @@ else if (mode == Mode.Running && runningSession is not null)
     private RenderFragment PauseIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5h3v11H4v-11zm5 0h3v11H9v-11z" /></svg>;
 
     private RenderFragment ResetIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" /><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" /></svg>;
+
+    private RenderFragment FinishIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M14.778.085A.5.5 0 0 1 15 .5V8a.5.5 0 0 1-.314.464L14.5 8l.186.464-.003.001-.006.003-.023.009a12 12 0 0 1-.397.15c-.264.095-.631.223-1.047.35-.816.252-1.879.523-2.71.523-.847 0-1.548-.28-2.158-.525l-.028-.01C7.68 8.71 7.14 8.5 6.5 8.5c-.7 0-1.638.23-2.437.477A20 20 0 0 0 3 9.342V15.5a.5.5 0 0 1-1 0V.5a.5.5 0 0 1 1 0v.282c.226-.079.496-.17.79-.26C4.606.272 5.67 0 6.5 0c.84 0 1.524.277 2.121.519l.043.018C9.286.788 9.828 1 10.5 1c.7 0 1.638-.23 2.437-.477a20 20 0 0 0 1.349-.476l.019-.007.004-.002h.001" /></svg>;
 
     private RenderFragment EditIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z" /></svg>;
 
@@ -668,7 +714,7 @@ else if (mode == Mode.Running && runningSession is not null)
         {
             if (isCompleted)
             {
-                return "You finished the activity.";
+                return pendingLogEntry?.FinishedEarly == true ? "Finished early." : "You finished the activity.";
             }
 
             if (currentBlockIndex < 0 || currentBlockIndex >= runBlocks.Count)

@@ -54,3 +54,15 @@
     width: 2.75em;
     height: 1.5em;
 }
+
+.type-row {
+    gap: 0.5rem;
+    cursor: default;
+}
+
+.icon-select {
+    width: 4.5rem;
+    flex: none;
+    font-size: 1.2rem;
+    padding-right: 1.75rem;
+}
