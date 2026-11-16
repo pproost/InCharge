@@ -85,7 +85,7 @@
         {
             <div class="setting-row type-row">
                 <select class="form-select icon-select" value="@type.Icon" @onchange="e => UpdateType(type, t => t.Icon = e.Value?.ToString() ?? t.Icon)" aria-label="Icon">
-                    @foreach (var icon in ActivityTypeService.Icons)
+                    @foreach (var icon in ActivityTypeService.IconsIncluding(type.Icon))
                     {
                         <option value="@icon">@icon</option>
                     }

@@ -8,7 +8,7 @@ Android companion app for interval training cues that relay to a Fitbit Charge 6
 - The earlier PWA (Blazor WASM / GitHub Pages) was dropped: browser timers stop when the screen locks.
 
 ## Pages & services
-- `Pages/BasicInterval.razor` (`/`): duration unit, move/rest durations, repeats, optional warm-up/cool-down. With cool-down on, the trailing Rest is skipped.
+- `Pages/BasicInterval.razor` (`/`): duration unit, move/rest durations, repeats, activity type, optional warm-up/cool-down. With cool-down on, the trailing Rest is skipped.
 - `Pages/AdvancedInterval.razor` (`/advanced`): saved named sessions → groups (repeat count) of Move/Rest blocks, optional warm-up/cool-down. `BuildRunBlocks` flattens to a run list (also used for the list summary).
 - `Pages/ActivityLog.razor` (`/log`): stat tiles (week + trend, weekly streak, move time, sessions), type filter chips, by-type breakdown, stacked daily bar chart (7/30 days), 12-week heatmap, move/rest split, records, history with delete. Charts are plain CSS/flex, no library.
 - `Services/ActivityLogService.cs`: log entries (Preferences key `incharge.activityLog`) plus `ActivityRecorder`, which both interval pages use to track start/pauses and log a run only when it fully completes (automatically, or via "Save to log" on the completion screen when the AutoSaveToLog setting is off).

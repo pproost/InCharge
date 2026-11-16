@@ -13,7 +13,21 @@ public class ActivityTypeService
 {
     private const string Key = "incharge.activityTypes";
 
-    public static readonly string[] Icons = ["🚴", "🏃", "🚶", "🥾", "🚣", "🏊", "⛷️", "🏋️", "🧘", "⚽", "🎾", "❤️"];
+    public static readonly string[] Icons =
+    [
+        // Cardio and endurance
+        "🚴", "🚵", "🏃", "🚶", "🥾", "🏊", "🚣", "🛶", "⛷️", "🏂", "⛸️", "🛼", "🛹", "🧗",
+        // Strength, core and mobility
+        "🏋️", "💪", "🤸", "🧘", "🤾", "🥊", "🥋", "🤼", "🦵", "🪢",
+        // Ball and racket sports
+        "⚽", "🏀", "🏐", "🎾", "🏸", "🏓", "⛳", "🏒", "🏈",
+        // Misc
+        "💃", "🐕", "🏇", "⏱️", "🔥", "⚡", "❤️", "🎯", "⭐", "🏆"
+    ];
+
+    // A type's icon may not be in the preset list (e.g. it was removed later); keep it selectable.
+    public static IEnumerable<string> IconsIncluding(string current) =>
+        Icons.Contains(current) ? Icons : Icons.Prepend(current);
 
     private List<ActivityType>? _cached;
 

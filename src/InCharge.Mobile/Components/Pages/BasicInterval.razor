@@ -81,6 +81,19 @@
         <input id="repeats" type="number" min="1" step="1" inputmode="numeric" class="form-control"
                @bind="Repeats" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked" />
     </div>
+    @if (Types.LoadAll().Count > 0)
+    {
+        <div class="col-12">
+            <label class="form-label" for="basicType">Activity type</label>
+            <select id="basicType" class="form-select" @bind="TypeId" @bind:after="SaveSettingsAsync" disabled="@IsConfigLocked">
+                <option value="">None (use the last one picked)</option>
+                @foreach (var type in Types.LoadAll())
+                {
+                    <option value="@type.Id">@type.Icon @type.Name</option>
+                }
+            </select>
+        </div>
+    }
     <div class="col-12">
         <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" role="switch" id="warmupEnabled"
@@ -198,6 +211,7 @@
     private int WarmupDurationSeconds { get; set; } = 300;
     private bool CooldownEnabled { get; set; }
     private int CooldownDurationSeconds { get; set; } = 300;
+    private string TypeId { get; set; } = "";
 
     private int MovingMinutesPart
     {
@@ -285,7 +299,7 @@
         isRunning = false;
         isPaused = false;
         pendingLogEntry = recorder.Complete("Basic Interval", false, done, finishedEarly);
-        pendingLogEntry.TypeId = Types.Resolve(AppSettings.Load().LastTypeId);
+        pendingLogEntry.TypeId = Types.Resolve(TypeId, AppSettings.Load().LastTypeId);
         totalDurationSeconds = pendingLogEntry.ActiveSeconds;
         logSaved = false;
         if (AppSettings.Load().AutoSaveToLog)
@@ -335,6 +349,7 @@
                 WarmupDurationSeconds = saved.WarmupDurationSeconds;
                 CooldownEnabled = saved.CooldownEnabled;
                 CooldownDurationSeconds = saved.CooldownDurationSeconds;
+                TypeId = Types.Resolve(saved.TypeId) ?? "";
             }
         }
         catch (JsonException)
@@ -354,7 +369,8 @@
             WarmupEnabled = WarmupEnabled,
             WarmupDurationSeconds = WarmupDurationSeconds,
             CooldownEnabled = CooldownEnabled,
-            CooldownDurationSeconds = CooldownDurationSeconds
+            CooldownDurationSeconds = CooldownDurationSeconds,
+            TypeId = string.IsNullOrEmpty(TypeId) ? null : TypeId
         };
         Preferences.Default.Set(StorageKey, JsonSerializer.Serialize(settings));
         return Task.CompletedTask;
@@ -618,5 +634,6 @@
         public int WarmupDurationSeconds { get; set; } = 300;
         public bool CooldownEnabled { get; set; }
         public int CooldownDurationSeconds { get; set; } = 300;
+        public string? TypeId { get; set; }
     }
 }
