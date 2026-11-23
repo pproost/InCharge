@@ -53,9 +53,13 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        if (RememberedPages.Contains(CurrentPage))
+        // A coach plan runs on the Advanced page (advanced?run=…&from=coaching), but belongs to Coaching.
+        var page = CurrentPage == "advanced" && Navigation.Uri.Contains("from=coaching", StringComparison.OrdinalIgnoreCase)
+            ? "coaching"
+            : CurrentPage;
+        if (RememberedPages.Contains(page))
         {
-            Preferences.Default.Set(LastPageKey, CurrentPage);
+            Preferences.Default.Set(LastPageKey, page);
         }
     }
 
