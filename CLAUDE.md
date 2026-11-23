@@ -7,6 +7,12 @@ Android companion app for interval training cues that relay to a Fitbit Charge 6
 - Notifications via `Plugin.LocalNotification` 14.1.1 (+ `.Core` 1.1.1). Persistence via `Preferences` (JSON per key).
 - The earlier PWA (Blazor WASM / GitHub Pages) was dropped: browser timers stop when the screen locks.
 
+## HealthCoach sync (in progress)
+- InCharge will sync with the HealthCoach server on Azure: upload executed sessions, import Claude's planned sessions. Handover: `C:\Users\pproost\source\private\ILikeTheWayYouMove\HANDOVER-incharge-backend.md`.
+- **`docs/contract.md` is the contract** (version 1); HealthCoach copies it. Model changes that cross the wire must be reflected there first.
+- Agreed order: 1. contract (done) · 2. model extensions without network (block `Label`, structure snapshot + session id on log entries, `PlanId`/`PlannedDate`/`Note`/`Source` on sessions, offsets) · 3. sync basics (Settings "Coach sync", token in SecureStorage, outbox, tested against a local fake server via `adb reverse`) · 4. plan import + coach list in Advanced · 5. one-time history upload.
+- Rules: offline-first, the app wins (imported/deleted plan ids are never re-imported), uploads idempotent on log id with `updatedAt`, deletes as tombstones.
+
 ## Pages & services
 - `Pages/BasicInterval.razor` (`/`): duration unit, move/rest durations, repeats, activity type, optional warm-up/cool-down. With cool-down on, the trailing Rest is skipped.
 - `Pages/AdvancedInterval.razor` (`/advanced`): saved named sessions → groups (repeat count) of Move/Rest blocks, optional warm-up/cool-down. `BuildRunBlocks` flattens to a run list (also used for the list summary).
