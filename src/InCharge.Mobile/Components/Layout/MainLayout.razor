@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject NavigationManager Navigation
+@inject InCharge.Mobile.Services.CoachSyncService CoachSync
 
 <div class="app-shell">
     <header class="app-header">
@@ -42,6 +43,9 @@
         }
 
         Navigation.LocationChanged += OnLocationChanged;
+
+        // Sends whatever is still waiting for the coach server (e.g. sessions done offline).
+        CoachSync.SyncInBackground();
     }
 
     private string CurrentPage => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0];

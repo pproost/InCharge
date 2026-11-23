@@ -4,6 +4,8 @@
 @inject AppSettingsService AppSettings
 @inject ActivityLogService LogService
 @inject ActivityTypeService TypeService
+@inject CoachSyncService CoachSync
+@implements IDisposable
 
 <PageTitle>Settings</PageTitle>
 
@@ -120,6 +122,75 @@
 </section>
 
 <section class="settings-section">
+    <h2 class="section-title">Coach sync</h2>
+    <div class="settings-card">
+        <label class="setting-row" for="coachSync">
+            <div class="setting-text">
+                <div class="setting-name">Sync with HealthCoach</div>
+                <div class="setting-hint">Uploads every activity you log or change. Works offline; it catches up later.</div>
+            </div>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="coachSync"
+                       checked="@CoachSync.State.Enabled"
+                       @onchange="e => CoachSync.SetEnabled((bool)(e.Value ?? false))" />
+            </div>
+        </label>
+        @if (CoachSync.State.Enabled)
+        {
+            <div class="setting-row setting-stack">
+                <div class="setting-name">Server URL</div>
+                <input class="form-control" type="url" inputmode="url" autocapitalize="off" spellcheck="false"
+                       placeholder="https://….azurewebsites.net" value="@CoachSync.State.ServerUrl"
+                       @onchange="e => CoachSync.SetServerUrl(e.Value?.ToString() ?? string.Empty)" aria-label="Server URL" />
+            </div>
+            <div class="setting-row setting-stack">
+                <div class="setting-name">Device token</div>
+                @if (hasToken && !editingToken)
+                {
+                    <div class="token-row">
+                        <span class="setting-hint">🔒 Stored securely on this device</span>
+                        <button class="btn btn-outline-primary btn-sm" @onclick="() => editingToken = true">Change</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="token-row">
+                        <input class="form-control" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"
+                               placeholder="Paste the InCharge token" @bind="tokenInput" @bind:event="oninput" aria-label="Device token" />
+                        <button class="btn btn-primary btn-sm" @onclick="SaveToken" disabled="@string.IsNullOrWhiteSpace(tokenInput)">Save</button>
+                    </div>
+                    @if (hasToken)
+                    {
+                        <div class="token-row">
+                            <button class="btn btn-link btn-sm p-0" @onclick="CancelTokenEdit">Cancel</button>
+                            <button class="btn btn-link btn-sm p-0 text-danger" @onclick="RemoveToken">Remove token</button>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="setting-row">
+                <div class="setting-text">
+                    <div class="setting-name">Status</div>
+                    <div class="setting-hint @(SyncHasProblem ? "text-danger" : "")">@SyncStatus</div>
+                </div>
+                <div class="sync-buttons">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="TestConnection" disabled="@testing">Test</button>
+                    <button class="btn btn-outline-primary btn-sm" @onclick="SyncNow" disabled="@CoachSync.IsSyncing">Sync now</button>
+                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(testMessage))
+            {
+                <div class="setting-hint px-3 pb-2">@testMessage</div>
+            }
+        }
+    </div>
+    <p class="section-footnote">
+        Only activities logged or changed while sync is on are uploaded. Deleting one from the log also
+        removes it on the server.
+    </p>
+</section>
+
+<section class="settings-section">
     <h2 class="section-title">Data</h2>
     <div class="settings-card">
         <div class="setting-row">
@@ -141,11 +212,100 @@
     private string newTypeName = "";
     private string newTypeIcon = ActivityTypeService.Icons[0];
     private string? pendingDeleteTypeId;
+    private bool hasToken;
+    private bool editingToken;
+    private string tokenInput = string.Empty;
+    private bool testing;
+    private string? testMessage;
+
+    private bool SyncHasProblem => CoachSync.State.AuthFailed || !string.IsNullOrEmpty(CoachSync.State.LastError);
+
+    private string SyncStatus
+    {
+        get
+        {
+            var state = CoachSync.State;
+            if (string.IsNullOrEmpty(state.ServerUrl) || !hasToken)
+            {
+                return "Enter the server URL and device token.";
+            }
+            if (state.AuthFailed)
+            {
+                return "Token rejected. Check the token, then save it again.";
+            }
+            if (CoachSync.IsSyncing)
+            {
+                return "Uploading…";
+            }
+
+            var waiting = CoachSync.PendingCount == 0 ? "nothing waiting" : $"{CoachSync.PendingCount} waiting";
+            if (!string.IsNullOrEmpty(state.LastError))
+            {
+                return $"{state.LastError} ({waiting})";
+            }
+            return state.LastSyncAt is { } last
+                ? $"Last upload {FormatWhen(last)} · {waiting}"
+                : $"No uploads yet · {waiting}";
+        }
+    }
+
+    private static string FormatWhen(DateTimeOffset when) =>
+        when.LocalDateTime.Date == DateTime.Today
+            ? $"today {when.LocalDateTime:HH:mm}"
+            : when.LocalDateTime.ToString("d MMM HH:mm");
+
+    private async Task SaveToken()
+    {
+        await CoachSync.SetTokenAsync(tokenInput);
+        tokenInput = string.Empty;
+        editingToken = false;
+        hasToken = await CoachSync.HasTokenAsync();
+    }
+
+    private void CancelTokenEdit()
+    {
+        editingToken = false;
+        tokenInput = string.Empty;
+    }
+
+    private async Task RemoveToken()
+    {
+        await CoachSync.SetTokenAsync(null);
+        editingToken = false;
+        hasToken = false;
+    }
+
+    private async Task TestConnection()
+    {
+        testing = true;
+        testMessage = "Testing…";
+        var result = await CoachSync.TestConnectionAsync();
+        testMessage = result switch
+        {
+            ConnectionCheck.Ok => $"✓ Connected ({DateTime.Now:HH:mm:ss})",
+            ConnectionCheck.NotConfigured => "Enter a valid URL and token first.",
+            ConnectionCheck.Unauthorized => "The server rejected the token.",
+            ConnectionCheck.Unreachable => "Server not reachable. Check the URL and your connection.",
+            _ => "The server answered with an error."
+        };
+        testing = false;
+    }
+
+    private Task SyncNow() => CoachSync.SyncAsync();
+
+    private void OnSyncStatusChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => CoachSync.StatusChanged -= OnSyncStatusChanged;
 
     private void UpdateType(ActivityType type, Action<ActivityType> change)
     {
+        var before = (type.Name, type.Icon);
         change(type);
         TypeService.SaveAll(types);
+        if (before != (type.Name, type.Icon))
+        {
+            LogService.TouchType(type.Id);
+        }
     }
 
     private void AddType()
@@ -163,6 +323,7 @@
     {
         types.Remove(type);
         TypeService.SaveAll(types);
+        LogService.TouchType(type.Id);
         pendingDeleteTypeId = null;
     }
 
@@ -171,6 +332,8 @@
         settings = AppSettings.Load();
         types = TypeService.LoadAll();
         notificationsEnabled = await Notifier.AreNotificationsEnabledAsync();
+        hasToken = await CoachSync.HasTokenAsync();
+        CoachSync.StatusChanged += OnSyncStatusChanged;
     }
 
     private void Update(Action<AppSettings> change)

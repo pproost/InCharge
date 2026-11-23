@@ -52,6 +52,10 @@ public class ActivityLogService
     private const string Key = "incharge.activityLog";
     private List<ActivityLogEntry>? _cached;
 
+    // Raised after an entry was added, changed (deleted = false) or removed (deleted = true),
+    // with the time of that change. The coach sync queues it for upload.
+    public event Action<string, bool, DateTimeOffset>? EntryChanged;
+
     public List<ActivityLogEntry> LoadAll()
     {
         if (_cached is not null)
@@ -79,6 +83,7 @@ public class ActivityLogService
         var all = LoadAll();
         all.Add(entry);
         Save(all);
+        EntryChanged?.Invoke(entry.Id, false, entry.EffectiveUpdatedAt);
     }
 
     // Entries are edited in place (e.g. their type); this stamps the change and persists the list.
@@ -86,13 +91,39 @@ public class ActivityLogService
     {
         changed.UpdatedAt = DateTimeOffset.Now;
         Save(LoadAll());
+        EntryChanged?.Invoke(changed.Id, false, changed.UpdatedAt);
+    }
+
+    // A type was renamed, re-iconed or deleted: the logged sessions carry its name and icon to
+    // the server, so they are stamped as changed and uploaded again.
+    public void TouchType(string typeId)
+    {
+        var now = DateTimeOffset.Now;
+        var touched = LoadAll().Where(e => e.TypeId == typeId).ToList();
+        if (touched.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var entry in touched)
+        {
+            entry.UpdatedAt = now;
+        }
+        Save(LoadAll());
+        foreach (var entry in touched)
+        {
+            EntryChanged?.Invoke(entry.Id, false, now);
+        }
     }
 
     public void Delete(string id)
     {
         var all = LoadAll();
-        all.RemoveAll(e => e.Id == id);
-        Save(all);
+        if (all.RemoveAll(e => e.Id == id) > 0)
+        {
+            Save(all);
+            EntryChanged?.Invoke(id, true, DateTimeOffset.Now);
+        }
     }
 
     private void Save(List<ActivityLogEntry> all)

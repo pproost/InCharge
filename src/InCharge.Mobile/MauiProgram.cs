@@ -23,6 +23,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<AdvancedSessionService>();
 		builder.Services.AddSingleton<ActivityLogService>();
 		builder.Services.AddSingleton<ActivityTypeService>();
+		builder.Services.AddSingleton<CoachSyncService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
