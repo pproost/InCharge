@@ -194,6 +194,9 @@ else if (mode == Mode.Edit)
                             <button class="btn btn-outline-danger btn-sm ms-auto" @onclick="() => group.Blocks.RemoveAt(blockIndex)" title="Remove block" aria-label="Remove block">
                                 @DeleteIcon
                             </button>
+                            <input class="form-control form-control-sm block-label" maxlength="@IntervalBlock.MaxLabelLength"
+                                   placeholder="Label, e.g. Zone 2 (optional)" aria-label="Block label"
+                                   value="@block.Label" @onchange="e => block.Label = IntervalBlock.CleanLabel(e.Value?.ToString())" />
                         </div>
                     </div>
                 }
@@ -226,6 +229,10 @@ else if (mode == Mode.Running && runningSession is not null)
     <div class="activity-overlay">
         <div class="activity-card">
             <div class="activity-phase @PhaseColorClass">@StatusHeading</div>
+            @if (!isCompleted && !isPaused && currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count && runBlocks[currentBlockIndex].Label is { } label)
+            {
+                <div class="activity-label">@label</div>
+            }
             @if (!string.IsNullOrEmpty(FormattedRemaining))
             {
                 <div class="activity-timer">@FormattedRemaining</div>
@@ -325,7 +332,7 @@ else if (mode == Mode.Running && runningSession is not null)
         isCompleted = true;
         isRunning = false;
         isPaused = false;
-        pendingLogEntry = recorder.Complete(runningSession?.Name ?? "Advanced Interval", true, done, finishedEarly);
+        pendingLogEntry = recorder.Complete(done, finishedEarly);
         pendingLogEntry.TypeId = Types.Resolve(runningSession?.TypeId, AppSettings.Load().LastTypeId);
         totalDurationSeconds = pendingLogEntry.ActiveSeconds;
         logSaved = false;
@@ -383,7 +390,7 @@ else if (mode == Mode.Running && runningSession is not null)
         editGroups = session.Groups.Select(g => new IntervalGroup
         {
             RepeatCount = g.RepeatCount,
-            Blocks = g.Blocks.Select(b => new IntervalBlock { IsMove = b.IsMove, DurationSeconds = b.DurationSeconds }).ToList()
+            Blocks = g.Blocks.Select(b => new IntervalBlock { IsMove = b.IsMove, DurationSeconds = b.DurationSeconds, Label = b.Label }).ToList()
         }).ToList();
         editError = null;
         mode = Mode.Edit;
@@ -526,7 +533,7 @@ else if (mode == Mode.Running && runningSession is not null)
                     var block = group.Blocks[b];
                     var blockLabel = group.Blocks.Count > 1 ? $"Block {b + 1}/{group.Blocks.Count}" : null;
                     var detail = string.Join(" · ", new[] { groupLabel, repeatLabel, blockLabel }.Where(s => !string.IsNullOrEmpty(s)));
-                    list.Add(new RunBlock(block.IsMove ? BlockKind.Move : BlockKind.Rest, Math.Max(1, block.DurationSeconds), detail));
+                    list.Add(new RunBlock(block.IsMove ? BlockKind.Move : BlockKind.Rest, Math.Max(1, block.DurationSeconds), detail, IntervalBlock.CleanLabel(block.Label)));
                 }
             }
         }
@@ -556,7 +563,9 @@ else if (mode == Mode.Running && runningSession is not null)
         isPaused = false;
         totalDurationSeconds = runBlocks.Sum(b => b.DurationSeconds);
         mode = Mode.Running;
-        recorder.Start();
+        recorder.Start(session.Name,
+            session.IsCoachPlan ? AdvancedSession.CoachSource : ActivityLogEntry.AdvancedSource,
+            SessionStructure.FromSession(session), session.Id, session.PlanId);
         pendingLogEntry = null;
         await AdvanceBlockAsync();
         RunLoop();
@@ -571,7 +580,7 @@ else if (mode == Mode.Running && runningSession is not null)
         if (currentBlockIndex >= 0 && currentBlockIndex < runBlocks.Count)
         {
             var block = runBlocks[currentBlockIndex];
-            _ = Notifier.ShowPausedAsync(HeadingFor(block.Kind), remainingSeconds, block.DurationSeconds);
+            _ = Notifier.ShowPausedAsync(CueFor(block), remainingSeconds, block.DurationSeconds);
         }
     }
 
@@ -645,13 +654,13 @@ else if (mode == Mode.Running && runningSession is not null)
 
         var block = runBlocks[currentBlockIndex];
         remainingSeconds = block.DurationSeconds;
-        await Notifier.StartPhaseAsync(HeadingFor(block.Kind), block.Detail, remainingSeconds, block.DurationSeconds);
+        await Notifier.StartPhaseAsync(CueFor(block), block.Detail, remainingSeconds, block.DurationSeconds);
     }
 
     private Task UpdateProgressAsync()
     {
         var block = runBlocks[currentBlockIndex];
-        return Notifier.UpdateTimerAsync(HeadingFor(block.Kind), block.Detail, remainingSeconds, block.DurationSeconds);
+        return Notifier.UpdateTimerAsync(CueFor(block), block.Detail, remainingSeconds, block.DurationSeconds);
     }
 
     private RenderFragment PlayIcon => @<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2.5v11l10-5.5-10-5.5z" /></svg>;
@@ -744,5 +753,9 @@ else if (mode == Mode.Running && runningSession is not null)
         Cooldown
     }
 
-    private record RunBlock(BlockKind Kind, int DurationSeconds, string Detail);
+    private record RunBlock(BlockKind Kind, int DurationSeconds, string Detail, string? Label = null);
+
+    // The label goes next to the phase so it shows on the watch, e.g. "Move! Zone 2".
+    private static string CueFor(RunBlock block) =>
+        block.Label is null ? HeadingFor(block.Kind) : $"{HeadingFor(block.Kind)} {block.Label}";
 }

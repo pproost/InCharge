@@ -298,7 +298,7 @@
         isCompleted = true;
         isRunning = false;
         isPaused = false;
-        pendingLogEntry = recorder.Complete("Basic Interval", false, done, finishedEarly);
+        pendingLogEntry = recorder.Complete(done, finishedEarly);
         pendingLogEntry.TypeId = Types.Resolve(TypeId, AppSettings.Load().LastTypeId);
         totalDurationSeconds = pendingLogEntry.ActiveSeconds;
         logSaved = false;
@@ -445,7 +445,10 @@
         currentPhaseIndex = -1;
         isCompleted = false;
         isRunning = true;
-        recorder.Start();
+        recorder.Start("Basic Interval", ActivityLogEntry.BasicSource, SessionStructure.ForBasic(
+            MovingDurationSeconds, RestingDurationSeconds, Repeats,
+            WarmupEnabled && WarmupDurationSeconds > 0 ? WarmupDurationSeconds : null,
+            CooldownEnabled && CooldownDurationSeconds > 0 ? CooldownDurationSeconds : null));
         pendingLogEntry = null;
         await AdvancePhaseAsync();
         RunLoop();

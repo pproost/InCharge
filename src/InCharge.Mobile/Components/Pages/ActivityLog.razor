@@ -277,7 +277,7 @@ else if (entries.Count > 0)
     private void ChangeType(ActivityLogEntry entry, string? typeId)
     {
         entry.TypeId = string.IsNullOrEmpty(typeId) ? null : typeId;
-        LogService.SaveChanges();
+        LogService.SaveChanges(entry);
         ApplyFilter();
     }
 
@@ -302,6 +302,8 @@ else if (entries.Count > 0)
     private static DateTime Today => DateTime.Today;
 
     private static DateTime StartOfWeek(DateTime date) => date.Date.AddDays(-(((int)date.DayOfWeek + 6) % 7));
+
+    private static DateTime StartOfWeek(DateTimeOffset date) => StartOfWeek(date.DateTime);
 
     private IEnumerable<ActivityLogEntry> WeekEntries => entries.Where(e => e.CompletedAt.Date >= StartOfWeek(Today));
 

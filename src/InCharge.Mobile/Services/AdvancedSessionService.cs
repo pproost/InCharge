@@ -4,8 +4,22 @@ namespace InCharge.Mobile.Services;
 
 public class IntervalBlock
 {
+    // Has to stay readable next to the phase on a Charge 6 (see docs/contract.md).
+    public const int MaxLabelLength = 20;
+
     public bool IsMove { get; set; } = true;
     public int DurationSeconds { get; set; } = 60;
+    public string? Label { get; set; }
+
+    public static string? CleanLabel(string? label)
+    {
+        var trimmed = label?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return null;
+        }
+        return trimmed.Length > MaxLabelLength ? trimmed[..MaxLabelLength] : trimmed;
+    }
 }
 
 public class IntervalGroup
@@ -24,7 +38,14 @@ public class AdvancedSession
     public bool CooldownEnabled { get; set; }
     public int CooldownDurationSeconds { get; set; } = 300;
     public string? TypeId { get; set; }
+    public string? Source { get; set; }
+    public string? PlanId { get; set; }
+    public DateOnly? PlannedDate { get; set; }
+    public string? Note { get; set; }
     public List<IntervalGroup> Groups { get; set; } = new();
+
+    public const string CoachSource = "coach";
+    public bool IsCoachPlan => Source == CoachSource;
 }
 
 public class AdvancedSessionService
@@ -76,6 +97,10 @@ public class AdvancedSessionService
             CooldownEnabled = stored.CooldownEnabled,
             CooldownDurationSeconds = stored.CooldownDurationSeconds,
             TypeId = stored.TypeId,
+            Source = stored.Source,
+            PlanId = stored.PlanId,
+            PlannedDate = stored.PlannedDate,
+            Note = stored.Note,
             Groups = groups
         };
     }
@@ -89,7 +114,11 @@ public class AdvancedSessionService
         public int WarmupDurationSeconds { get; set; } = 300;
         public bool CooldownEnabled { get; set; }
         public int CooldownDurationSeconds { get; set; } = 300;
-    public string? TypeId { get; set; }
+        public string? TypeId { get; set; }
+        public string? Source { get; set; }
+        public string? PlanId { get; set; }
+        public DateOnly? PlannedDate { get; set; }
+        public string? Note { get; set; }
         public List<IntervalGroup>? Groups { get; set; }
         public List<IntervalBlock>? Blocks { get; set; }
     }

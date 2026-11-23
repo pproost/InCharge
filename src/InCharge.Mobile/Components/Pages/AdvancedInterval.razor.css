@@ -76,3 +76,14 @@
     padding: 0;
 }
 
+
+.activity-label {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: white;
+    margin-top: 0.25rem;
+}
+
+.block-label {
+    flex-basis: 100%;
+}
