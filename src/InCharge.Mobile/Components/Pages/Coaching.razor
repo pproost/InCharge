@@ -1,0 +1,137 @@
+@page "/coaching"
+@using InCharge.Mobile.Services
+@inject AdvancedSessionService Sessions
+@inject ActivityLogService ActivityLog
+@inject ActivityTypeService Types
+@inject CoachSyncService CoachSync
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>Coaching</PageTitle>
+
+<h1>Coaching</h1>
+
+@if (!CoachSync.State.Enabled)
+{
+    <div class="alert alert-info">
+        Sessions planned by your coach show up here. Turn on <a href="settings">Coach sync</a> in Settings to get them.
+    </div>
+}
+
+@{
+    var plans = sessions.Where(s => s.IsCoachPlan).ToList();
+    var done = plans.Where(IsDone).OrderByDescending(s => s.PlannedDate ?? DateOnly.MinValue).ToList();
+    var open = plans.Where(s => !IsDone(s)).ToList();
+    var upcoming = open.Where(s => s.PlannedDate is null || s.PlannedDate >= AdvancedInterval.Today)
+        .OrderBy(s => s.PlannedDate ?? DateOnly.MaxValue).ThenBy(s => s.Name).ToList();
+    // A missed plan stays visible for a week, then drops out of sight.
+    var missed = open.Where(s => s.PlannedDate < AdvancedInterval.Today && s.PlannedDate >= AdvancedInterval.Today.AddDays(-7))
+        .OrderByDescending(s => s.PlannedDate).ToList();
+}
+
+<h2 class="list-heading">Up next</h2>
+@if (upcoming.Count == 0)
+{
+    <p class="text-muted">Nothing planned right now.</p>
+}
+@foreach (var plan in upcoming)
+{
+    @PlanCard(plan, false)
+}
+
+@if (missed.Count > 0)
+{
+    <h2 class="list-heading">Not done yet</h2>
+    @foreach (var plan in missed)
+    {
+        @PlanCard(plan, false)
+    }
+}
+
+@if (done.Count > 0)
+{
+    <button class="btn btn-link px-0 mt-2" @onclick="() => showDone = !showDone">
+        @(showDone ? "Hide completed" : $"Show completed ({done.Count})")
+    </button>
+    @if (showDone)
+    {
+        @foreach (var plan in done)
+        {
+            @PlanCard(plan, true)
+        }
+    }
+}
+
+@code {
+    private List<AdvancedSession> sessions = new();
+    private bool showDone;
+    private string? pendingDeleteId;
+
+    protected override void OnInitialized()
+    {
+        sessions = Sessions.LoadAll();
+        Sessions.SessionsImported += OnSessionsImported;
+        CoachSync.SyncInBackground();
+    }
+
+    private void OnSessionsImported() => _ = InvokeAsync(StateHasChanged);
+
+    private bool IsDone(AdvancedSession plan) =>
+        plan.PlanId is not null && ActivityLog.LoadAll().Any(e => e.PlanId == plan.PlanId);
+
+    private void Start(AdvancedSession plan) =>
+        Navigation.NavigateTo($"advanced?run={Uri.EscapeDataString(plan.Id)}&from=coaching");
+
+    private void Edit(AdvancedSession plan) =>
+        Navigation.NavigateTo($"advanced?edit={Uri.EscapeDataString(plan.Id)}&from=coaching");
+
+    // The app wins: a deleted plan is never imported again.
+    private void Delete(AdvancedSession plan)
+    {
+        sessions.Remove(plan);
+        Sessions.SaveAll(sessions);
+        pendingDeleteId = null;
+    }
+
+    private RenderFragment PlanCard(AdvancedSession plan, bool isDone) => __builder =>
+    {
+        var isToday = plan.PlannedDate == AdvancedInterval.Today;
+        var isPast = !isDone && plan.PlannedDate < AdvancedInterval.Today;
+        var type = Types.Find(plan.TypeId);
+        <div class="card mb-2 coach-card @(isToday && !isDone ? "coach-today" : "") @(isDone ? "coach-done" : "") @(isPast ? "coach-past" : "")">
+            <div class="card-body">
+                <div class="coach-meta">
+                    <span class="plan-date @(isToday ? "is-today" : "")">@AdvancedInterval.PlannedLabel(plan.PlannedDate)</span>
+                    @if (isDone)
+                    {
+                        <span class="plan-done">✓ Done</span>
+                    }
+                </div>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div class="coach-text">
+                        <strong>@(type is null ? "" : type.Icon + " ")@plan.Name</strong>
+                        <div class="small text-muted">@AdvancedInterval.FormatSessionSummary(plan)</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-success btn-sm" @onclick="() => Start(plan)">Start</button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => Edit(plan)">Edit</button>
+                        @if (pendingDeleteId == plan.Id)
+                        {
+                            <button class="btn btn-danger btn-sm" @onclick="() => Delete(plan)">Delete?</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-danger btn-sm" @onclick="() => pendingDeleteId = plan.Id" title="Delete" aria-label="Delete">✕</button>
+                        }
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(plan.Note))
+                {
+                    <div class="coach-note">@plan.Note</div>
+                }
+            </div>
+        </div>
+    };
+
+    public void Dispose() => Sessions.SessionsImported -= OnSessionsImported;
+}
