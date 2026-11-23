@@ -21,6 +21,19 @@ public class CoachSyncState
 
     // Log entries waiting to be uploaded, at most one per id (the latest change wins).
     public List<OutboxItem> Outbox { get; set; } = new();
+
+    // Opaque cursor from GET /plans, sent back as ?since=.
+    public string? PlanCursor { get; set; }
+
+    // Every planId ever imported. The app wins: a plan on this list is never imported again,
+    // not even after it was deleted locally.
+    public List<string> ImportedPlanIds { get; set; } = new();
+
+    // Imported plans whose delivery still has to be confirmed to the server.
+    public List<string> PendingDelivered { get; set; } = new();
+
+    public int LastImportedCount { get; set; }
+    public DateTimeOffset? LastImportedAt { get; set; }
 }
 
 public class OutboxItem
@@ -39,9 +52,9 @@ public enum ConnectionCheck
     Failed
 }
 
-// Uploads executed sessions to the HealthCoach server (docs/contract.md). Offline-first: every
-// change to the activity log goes into an outbox, which is sent whenever sync is configured and
-// the network is there. Without URL and token the app behaves exactly as before.
+// Talks to the HealthCoach server (docs/contract.md). Offline-first: every change to the activity
+// log goes into an outbox; a sync round uploads it, imports new coach plans as Advanced sessions
+// and confirms their delivery. Without URL and token the app behaves exactly as before.
 public class CoachSyncService
 {
     public const int ContractVersion = 1;
@@ -58,16 +71,19 @@ public class CoachSyncService
 
     private readonly ActivityLogService _log;
     private readonly ActivityTypeService _types;
+    private readonly AdvancedSessionService _sessions;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _stateLock = new();
     private CoachSyncState? _state;
     private string? _token;
     private bool _tokenLoaded;
+    private bool _roundHadError;
 
-    public CoachSyncService(ActivityLogService log, ActivityTypeService types)
+    public CoachSyncService(ActivityLogService log, ActivityTypeService types, AdvancedSessionService sessions)
     {
         _log = log;
         _types = types;
+        _sessions = sessions;
         _log.EntryChanged += OnEntryChanged;
         Connectivity.Current.ConnectivityChanged += (_, e) =>
         {
@@ -96,9 +112,6 @@ public class CoachSyncService
     public int PendingCount => State.Outbox.Count;
 
     public async Task<bool> HasTokenAsync() => !string.IsNullOrEmpty(await GetTokenAsync());
-
-    public async Task<bool> IsConfiguredAsync() =>
-        State.Enabled && Uri.TryCreate(State.ServerUrl, UriKind.Absolute, out _) && await HasTokenAsync();
 
     public void SetEnabled(bool enabled)
     {
@@ -134,7 +147,7 @@ public class CoachSyncService
         SyncInBackground();
     }
 
-    // Calls the plans endpoint (read-only) to check URL and token without uploading anything.
+    // Checks URL and token without changing anything: a GET of the plans, whose answer is ignored.
     public async Task<ConnectionCheck> TestConnectionAsync()
     {
         var token = await GetTokenAsync();
@@ -145,8 +158,7 @@ public class CoachSyncService
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(baseUri, "/api/incharge/plans"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var request = Request(HttpMethod.Get, baseUri, "/api/incharge/plans", token);
             using var response = await Http.SendAsync(request);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -169,8 +181,8 @@ public class CoachSyncService
 
     public void SyncInBackground() => _ = SyncAsync();
 
-    // Sends the outbox in batches. Never throws: failures end up in LastError and are retried
-    // on the next trigger (app start, a new change, network back, "Sync now").
+    // One sync round. Never throws: failures end up in LastError and are retried on the next
+    // trigger (app start or resume, a new change, network back, "Sync now").
     public async Task SyncAsync()
     {
         if (!await _gate.WaitAsync(0))
@@ -183,37 +195,27 @@ public class CoachSyncService
             var token = await GetTokenAsync();
             if (!State.Enabled || State.AuthFailed || string.IsNullOrEmpty(token)
                 || !Uri.TryCreate(State.ServerUrl, UriKind.Absolute, out var baseUri)
-                || PendingCount == 0)
-            {
-                return;
-            }
-
-            if (Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
+                || Connectivity.Current.NetworkAccess != NetworkAccess.Internet)
             {
                 return;
             }
 
             IsSyncing = true;
+            _roundHadError = false;
             StatusChanged?.Invoke();
 
-            while (true)
-            {
-                List<OutboxItem> batch;
-                lock (_stateLock)
-                {
-                    batch = State.Outbox.Take(BatchSize)
-                        .Select(i => new OutboxItem { Id = i.Id, Deleted = i.Deleted, UpdatedAt = i.UpdatedAt })
-                        .ToList();
-                }
-                if (batch.Count == 0)
-                {
-                    break;
-                }
+            var ok = await UploadOutboxAsync(baseUri, token)
+                     && await ImportPlansAsync(baseUri, token)
+                     && await ConfirmDeliveredAsync(baseUri, token);
 
-                if (!await UploadBatchAsync(baseUri, token, batch))
+            if (ok && !_roundHadError)
+            {
+                Update(s =>
                 {
-                    break;
-                }
+                    s.LastSyncAt = DateTimeOffset.Now;
+                    s.LastError = null;
+                    s.LastErrorAt = null;
+                });
             }
         }
         catch (Exception ex)
@@ -228,7 +230,34 @@ public class CoachSyncService
         }
     }
 
-    private async Task<bool> UploadBatchAsync(Uri baseUri, string token, List<OutboxItem> batch)
+    // ---------------------------------------------------------------- upload
+
+    private async Task<bool> UploadOutboxAsync(Uri baseUri, string token)
+    {
+        while (true)
+        {
+            List<OutboxItem> batch;
+            lock (_stateLock)
+            {
+                batch = State.Outbox.Take(BatchSize)
+                    .Select(i => new OutboxItem { Id = i.Id, Deleted = i.Deleted, UpdatedAt = i.UpdatedAt })
+                    .ToList();
+            }
+            if (batch.Count == 0)
+            {
+                return true;
+            }
+
+            var result = await UploadBatchAsync(baseUri, token, batch);
+            if (result is not true)
+            {
+                // false = stop the round (offline, 401, server error); null = nothing accepted, go on.
+                return result is null;
+            }
+        }
+    }
+
+    private async Task<bool?> UploadBatchAsync(Uri baseUri, string token, List<OutboxItem> batch)
     {
         var entries = _log.LoadAll().ToDictionary(e => e.Id);
         var sessions = new List<object>();
@@ -257,59 +286,33 @@ public class CoachSyncService
             return true;
         }
 
-        HttpResponseMessage response;
-        try
+        using var request = Request(HttpMethod.Post, baseUri, "/api/incharge/sessions", token,
+            new { contractVersion = ContractVersion, sessions });
+        using var response = await SendAsync(request);
+        if (response is null)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(baseUri, "/api/incharge/sessions"))
-            {
-                Content = JsonContent.Create(new { contractVersion = ContractVersion, sessions }, options: WireJson)
-            };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            response = await Http.SendAsync(request);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            RecordError("Server not reachable; will retry.");
             return false;
         }
 
-        using (response)
+        if (response.StatusCode == HttpStatusCode.BadRequest)
         {
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                Update(s => s.AuthFailed = true);
-                RecordError("Token rejected (401). Sync is paused until you change the URL or token.");
-                return false;
-            }
-
-            if (response.StatusCode == HttpStatusCode.BadRequest)
-            {
-                // A 400 won't get better by retrying: drop the batch so it doesn't block the rest.
-                var body = await response.Content.ReadAsStringAsync();
-                RemoveFromOutbox(sent);
-                RecordError($"Server rejected {sent.Count} session(s): {Shorten(body)}");
-                return true;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                RecordError($"Server error {(int)response.StatusCode}; will retry.");
-                return false;
-            }
-
-            var result = await response.Content.ReadFromJsonAsync<UploadResponseDto>(WireJson);
-            var accepted = new HashSet<string>(result?.Accepted ?? []);
-            RemoveFromOutbox(sent.Where(i => accepted.Contains(i.Id)));
-            Update(s =>
-            {
-                s.LastSyncAt = DateTimeOffset.Now;
-                s.LastError = null;
-                s.LastErrorAt = null;
-            });
-
-            // Nothing accepted means nothing will change on a retry right now.
-            return accepted.Count > 0;
+            // A 400 won't get better by retrying: drop the batch so it doesn't block the rest.
+            var body = await response.Content.ReadAsStringAsync();
+            RemoveFromOutbox(sent);
+            RecordError($"Server rejected {sent.Count} session(s): {Shorten(body)}");
+            return true;
         }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordError($"Server error {(int)response.StatusCode} on upload; will retry.");
+            return false;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<UploadResponseDto>(WireJson);
+        var accepted = new HashSet<string>(result?.Accepted ?? []);
+        RemoveFromOutbox(sent.Where(i => accepted.Contains(i.Id)));
+        return accepted.Count > 0 ? true : null;
     }
 
     private ExecutedSessionDto ToDto(ActivityLogEntry entry)
@@ -333,8 +336,8 @@ public class CoachSyncService
 
     private void OnEntryChanged(string id, bool deleted, DateTimeOffset updatedAt)
     {
-        // Without sync configured nothing is queued, so turning it on later doesn't dump old
-        // history by accident (that is a separate, explicit upload).
+        // Without sync on nothing is queued, so turning it on later doesn't dump old history by
+        // accident (that is a separate, explicit upload).
         if (!State.Enabled)
         {
             return;
@@ -355,11 +358,221 @@ public class CoachSyncService
         Update(s => s.Outbox.RemoveAll(i => done.Any(d => d.Id == i.Id && d.Deleted == i.Deleted && d.UpdatedAt == i.UpdatedAt)));
     }
 
-    private void RecordError(string message) => Update(s =>
+    // ---------------------------------------------------------------- plans
+
+    private async Task<bool> ImportPlansAsync(Uri baseUri, string token)
     {
-        s.LastError = message;
-        s.LastErrorAt = DateTimeOffset.Now;
-    });
+        var cursor = State.PlanCursor;
+        var path = "/api/incharge/plans" + (string.IsNullOrEmpty(cursor) ? "" : "?since=" + Uri.EscapeDataString(cursor));
+        using var request = Request(HttpMethod.Get, baseUri, path, token);
+        using var response = await SendAsync(request);
+        if (response is null)
+        {
+            return false;
+        }
+
+        if (response.StatusCode == HttpStatusCode.BadRequest && !string.IsNullOrEmpty(cursor))
+        {
+            // The server no longer understands our cursor: start over. Already imported plans are
+            // skipped by planId, so that is safe.
+            Update(s => s.PlanCursor = null);
+            return true;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordError($"Server error {(int)response.StatusCode} while fetching plans; will retry.");
+            return false;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<PlansResponseDto>(WireJson);
+        var plans = result?.Plans ?? [];
+        var known = new HashSet<string>(State.ImportedPlanIds);
+        var fresh = plans
+            .Where(p => !string.IsNullOrWhiteSpace(p.PlanId) && !known.Contains(p.PlanId))
+            .GroupBy(p => p.PlanId)
+            .Select(g => g.Last())
+            .ToList();
+
+        var imported = new List<string>();
+        var skipped = new List<string>();
+        if (fresh.Count > 0)
+        {
+            // The session and type lists are shared with the UI, which lives on the main thread.
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                var sessions = new List<AdvancedSession>();
+                foreach (var plan in fresh)
+                {
+                    if (_sessions.HasPlan(plan.PlanId))
+                    {
+                        imported.Add(plan.PlanId);
+                        continue;
+                    }
+
+                    var session = ToSession(plan);
+                    if (session is null)
+                    {
+                        skipped.Add(plan.Name ?? plan.PlanId);
+                        continue;
+                    }
+                    sessions.Add(session);
+                    imported.Add(plan.PlanId);
+                }
+
+                if (sessions.Count > 0)
+                {
+                    _sessions.AddImported(sessions);
+                }
+            });
+        }
+
+        var newCount = imported.Count;
+        Update(s =>
+        {
+            foreach (var id in imported.Where(id => !s.ImportedPlanIds.Contains(id)))
+            {
+                s.ImportedPlanIds.Add(id);
+            }
+
+            // Everything the server still offers and we have is confirmed (again): that is idempotent.
+            foreach (var id in plans.Select(p => p.PlanId).Where(id => s.ImportedPlanIds.Contains(id) && !s.PendingDelivered.Contains(id)))
+            {
+                s.PendingDelivered.Add(id);
+            }
+
+            if (!string.IsNullOrEmpty(result?.Cursor))
+            {
+                s.PlanCursor = result.Cursor;
+            }
+
+            if (newCount > 0)
+            {
+                s.LastImportedCount = newCount;
+                s.LastImportedAt = DateTimeOffset.Now;
+            }
+        });
+
+        if (skipped.Count > 0)
+        {
+            RecordError($"Skipped plan(s) without blocks: {string.Join(", ", skipped)}");
+        }
+        return true;
+    }
+
+    // Turns a coach plan into an Advanced session (docs/contract.md, "On import").
+    private AdvancedSession? ToSession(PlanDto plan)
+    {
+        var groups = (plan.Structure?.Groups ?? [])
+            .Where(g => g.Blocks is { Count: > 0 })
+            .Select(g => new IntervalGroup
+            {
+                RepeatCount = Math.Max(1, g.Repeat),
+                Blocks = g.Blocks.Select(b => new IntervalBlock
+                {
+                    IsMove = !string.Equals(b.Kind, StructureBlock.Rest, StringComparison.OrdinalIgnoreCase),
+                    DurationSeconds = Math.Max(1, b.Seconds),
+                    Label = IntervalBlock.CleanLabel(b.Label)
+                }).ToList()
+            }).ToList();
+
+        if (groups.Count == 0)
+        {
+            return null;
+        }
+
+        var warmup = plan.Structure?.WarmupSeconds is > 0 ? plan.Structure.WarmupSeconds : null;
+        var cooldown = plan.Structure?.CooldownSeconds is > 0 ? plan.Structure.CooldownSeconds : null;
+        var durations = groups.SelectMany(g => g.Blocks).Select(b => b.DurationSeconds)
+            .Concat(new[] { warmup, cooldown }.OfType<int>());
+
+        return new AdvancedSession
+        {
+            Name = string.IsNullOrWhiteSpace(plan.Name) ? "Coach session" : plan.Name.Trim(),
+            Source = AdvancedSession.CoachSource,
+            PlanId = plan.PlanId,
+            PlannedDate = plan.PlannedDate,
+            Note = string.IsNullOrWhiteSpace(plan.Note) ? null : plan.Note.Trim(),
+            TypeId = string.IsNullOrWhiteSpace(plan.Type?.Name) ? null : _types.FindOrCreate(plan.Type.Name, plan.Type.Icon).Id,
+            UseMinutes = durations.All(d => d % 60 == 0),
+            WarmupEnabled = warmup is not null,
+            WarmupDurationSeconds = warmup ?? 300,
+            CooldownEnabled = cooldown is not null,
+            CooldownDurationSeconds = cooldown ?? 300,
+            Groups = groups
+        };
+    }
+
+    private async Task<bool> ConfirmDeliveredAsync(Uri baseUri, string token)
+    {
+        foreach (var planId in State.PendingDelivered.ToList())
+        {
+            using var request = Request(HttpMethod.Post, baseUri, $"/api/incharge/plans/{Uri.EscapeDataString(planId)}/delivered", token,
+                new { contractVersion = ContractVersion, deliveredAt = DateTimeOffset.Now });
+            using var response = await SendAsync(request);
+            if (response is null)
+            {
+                return false;
+            }
+
+            if (!response.IsSuccessStatusCode && (int)response.StatusCode >= 500)
+            {
+                RecordError($"Server error {(int)response.StatusCode} confirming a plan; will retry.");
+                return false;
+            }
+
+            // 204, or a 4xx that won't get better by retrying.
+            Update(s => s.PendingDelivered.Remove(planId));
+        }
+        return true;
+    }
+
+    // ---------------------------------------------------------------- plumbing
+
+    private static HttpRequestMessage Request(HttpMethod method, Uri baseUri, string path, string token, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, new Uri(baseUri, path));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (body is not null)
+        {
+            request.Content = JsonContent.Create(body, options: WireJson);
+        }
+        return request;
+    }
+
+    // Null when the server is unreachable or rejects the token (both recorded); otherwise the response.
+    private async Task<HttpResponseMessage?> SendAsync(HttpRequestMessage request)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await Http.SendAsync(request);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            RecordError("Server not reachable; will retry.");
+            return null;
+        }
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            response.Dispose();
+            Update(s => s.AuthFailed = true);
+            RecordError("Token rejected (401). Sync is paused until you change the URL or token.");
+            return null;
+        }
+        return response;
+    }
+
+    private void RecordError(string message)
+    {
+        _roundHadError = true;
+        Update(s =>
+        {
+            s.LastError = message;
+            s.LastErrorAt = DateTimeOffset.Now;
+        });
+    }
 
     private void Update(Action<CoachSyncState> change)
     {
@@ -431,4 +644,8 @@ public class CoachSyncService
         PausesDto Pauses);
 
     private sealed record UploadResponseDto(List<string>? Accepted);
+
+    private sealed record PlansResponseDto(int ContractVersion, string? Cursor, List<PlanDto>? Plans);
+
+    private sealed record PlanDto(string PlanId, DateOnly? PlannedDate, string? Name, string? Note, TypeDto? Type, SessionStructure? Structure);
 }

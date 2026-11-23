@@ -5,6 +5,7 @@
 @inject AdvancedSessionService Sessions
 @inject ActivityLogService ActivityLog
 @inject ActivityTypeService Types
+@inject CoachSyncService CoachSync
 @implements IAsyncDisposable
 
 <PageTitle>Advanced Interval</PageTitle>
@@ -29,12 +30,47 @@
         @PlusIcon <span>New session</span>
     </button>
 
-    @if (sessions.Count == 0)
+    var coachPlans = VisibleCoachPlans();
+    var ownSessions = sessions.Where(s => !s.IsCoachPlan).ToList();
+
+    @if (coachPlans.Count > 0)
+    {
+        <h2 class="list-heading">From your coach</h2>
+        @foreach (var session in coachPlans)
+        {
+            var when = PlannedLabel(session.PlannedDate);
+            var done = IsPlanDone(session);
+            var type = Types.Find(session.TypeId);
+            <div class="card mb-2 coach-card @(session.PlannedDate == Today ? "coach-today" : "") @(done ? "coach-done" : "")">
+                <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div class="coach-text">
+                        <div class="coach-meta">
+                            <span class="plan-date @(session.PlannedDate == Today ? "is-today" : "")">@when</span>
+                            @if (done)
+                            {
+                                <span class="plan-done">✓ Done</span>
+                            }
+                        </div>
+                        <strong>@(type is null ? "" : type.Icon + " ")@session.Name</strong>
+                        <div class="small text-muted">@FormatSessionSummary(session)</div>
+                        @if (!string.IsNullOrEmpty(session.Note))
+                        {
+                            <div class="coach-note">@session.Note</div>
+                        }
+                    </div>
+                    @SessionButtons(session)
+                </div>
+            </div>
+        }
+        <h2 class="list-heading">My sessions</h2>
+    }
+
+    @if (ownSessions.Count == 0)
     {
         <p class="text-muted">No saved sessions yet.</p>
     }
 
-    @foreach (var session in sessions)
+    @foreach (var session in ownSessions)
     {
         <div class="card mb-2">
             <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-2">
@@ -42,11 +78,7 @@
                     <strong>@session.Name</strong>
                     <div class="small text-muted">@FormatSessionSummary(session)</div>
                 </div>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-success btn-sm" @onclick="() => RunSession(session)" title="Start" aria-label="Start">@PlayIcon</button>
-                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => EditSession(session)" title="Edit" aria-label="Edit">@EditIcon</button>
-                    <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteSession(session)" title="Delete" aria-label="Delete">@DeleteIcon</button>
-                </div>
+                @SessionButtons(session)
             </div>
         </div>
     }
@@ -54,6 +86,17 @@
 else if (mode == Mode.Edit)
 {
     <h1>@(editingSessionId is null ? "New session" : "Edit session")</h1>
+
+    @if (sessions.FirstOrDefault(s => s.Id == editingSessionId) is { IsCoachPlan: true } plan)
+    {
+        <div class="coach-editor-note mb-3">
+            <div class="small fw-semibold">From your coach · @PlannedLabel(plan.PlannedDate)</div>
+            @if (!string.IsNullOrEmpty(plan.Note))
+            {
+                <div class="coach-note">@plan.Note</div>
+            }
+        </div>
+    }
 
     <div class="mb-3" style="max-width: 480px;">
         <label class="form-label" for="sessionName">Name</label>
@@ -357,7 +400,46 @@ else if (mode == Mode.Running && runningSession is not null)
     {
         notificationsEnabled = await Notifier.AreNotificationsEnabledAsync();
         sessions = Sessions.LoadAll();
+        Sessions.SessionsImported += OnSessionsImported;
+        CoachSync.SyncInBackground();
     }
+
+    // Imported plans land in the same shared list; only the list view needs a redraw.
+    private void OnSessionsImported() => _ = InvokeAsync(StateHasChanged);
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    // Coach plans by planned day; once a week past their day they drop out of sight.
+    private List<AdvancedSession> VisibleCoachPlans() => sessions
+        .Where(s => s.IsCoachPlan && (s.PlannedDate is null || s.PlannedDate >= Today.AddDays(-7)))
+        .OrderBy(s => s.PlannedDate ?? DateOnly.MaxValue)
+        .ThenBy(s => s.Name)
+        .ToList();
+
+    private static string PlannedLabel(DateOnly? date)
+    {
+        if (date is not { } d)
+        {
+            return "Anytime";
+        }
+        var days = d.DayNumber - Today.DayNumber;
+        return days switch
+        {
+            0 => "Today",
+            1 => "Tomorrow",
+            -1 => "Yesterday",
+            _ => d.ToString("ddd d MMM", System.Globalization.CultureInfo.InvariantCulture)
+        };
+    }
+
+    private bool IsPlanDone(AdvancedSession session) =>
+        session.PlanId is not null && ActivityLog.LoadAll().Any(e => e.PlanId == session.PlanId);
+
+    private RenderFragment SessionButtons(AdvancedSession session) => @<div class="d-flex gap-2">
+        <button class="btn btn-success btn-sm" @onclick="() => RunSession(session)" title="Start" aria-label="Start">@PlayIcon</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="() => EditSession(session)" title="Edit" aria-label="Edit">@EditIcon</button>
+        <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteSession(session)" title="Delete" aria-label="Delete">@DeleteIcon</button>
+    </div>;
 
     private void StartNewSession()
     {
@@ -737,6 +819,7 @@ else if (mode == Mode.Running && runningSession is not null)
 
     public ValueTask DisposeAsync()
     {
+        Sessions.SessionsImported -= OnSessionsImported;
         _cts?.Cancel();
         if (mode == Mode.Running && !isCompleted)
         {

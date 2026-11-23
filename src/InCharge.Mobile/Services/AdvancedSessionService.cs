@@ -52,28 +52,49 @@ public class AdvancedSessionService
 {
     private const string Key = "incharge.advancedSessions";
 
+    // One shared list: the Advanced page edits it and the coach sync adds imported plans to it,
+    // so neither can overwrite the other with a stale copy.
+    private List<AdvancedSession>? _cached;
+
+    // Raised (on the main thread) after coach plans were added.
+    public event Action? SessionsImported;
+
     public List<AdvancedSession> LoadAll()
     {
-        var json = Preferences.Default.Get(Key, string.Empty);
-        if (string.IsNullOrEmpty(json))
+        if (_cached is not null)
         {
-            return new List<AdvancedSession>();
+            return _cached;
         }
 
+        var json = Preferences.Default.Get(Key, string.Empty);
         try
         {
-            var stored = JsonSerializer.Deserialize<List<StoredSession>>(json) ?? new List<StoredSession>();
-            return stored.Select(ToSession).ToList();
+            _cached = string.IsNullOrEmpty(json)
+                ? new List<AdvancedSession>()
+                : (JsonSerializer.Deserialize<List<StoredSession>>(json) ?? new List<StoredSession>()).Select(ToSession).ToList();
         }
         catch (JsonException)
         {
-            return new List<AdvancedSession>();
+            _cached = new List<AdvancedSession>();
         }
+
+        return _cached;
     }
 
     public void SaveAll(List<AdvancedSession> sessions)
     {
+        _cached = sessions;
         Preferences.Default.Set(Key, JsonSerializer.Serialize(sessions));
+    }
+
+    public bool HasPlan(string planId) => LoadAll().Any(s => s.PlanId == planId);
+
+    public void AddImported(IEnumerable<AdvancedSession> imported)
+    {
+        var all = LoadAll();
+        all.AddRange(imported);
+        SaveAll(all);
+        SessionsImported?.Invoke();
     }
 
     // Older saved sessions stored a flat "Blocks" list with no grouping/warmup/cooldown.

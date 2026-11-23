@@ -70,6 +70,22 @@ public class ActivityTypeService
         Preferences.Default.Set(Key, JsonSerializer.Serialize(types));
     }
 
+    // Types travel by name (docs/contract.md): reuse a type with the same name, else create it.
+    public ActivityType FindOrCreate(string name, string? icon)
+    {
+        var all = LoadAll();
+        var existing = all.FirstOrDefault(t => string.Equals(t.Name.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var created = new ActivityType { Name = name.Trim(), Icon = string.IsNullOrWhiteSpace(icon) ? "🏃" : icon.Trim() };
+        all.Add(created);
+        SaveAll(all);
+        return created;
+    }
+
     public ActivityType? Find(string? id) => id is null ? null : LoadAll().FirstOrDefault(t => t.Id == id);
 
     // Returns the first id that still exists, so a deleted type never ends up on a new entry.

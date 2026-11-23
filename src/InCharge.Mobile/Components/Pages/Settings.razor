@@ -127,7 +127,7 @@
         <label class="setting-row" for="coachSync">
             <div class="setting-text">
                 <div class="setting-name">Sync with HealthCoach</div>
-                <div class="setting-hint">Uploads every activity you log or change. Works offline; it catches up later.</div>
+                <div class="setting-hint">Uploads every activity you log or change and brings in sessions planned by your coach. Works offline; it catches up later.</div>
             </div>
             <div class="form-check form-switch m-0">
                 <input class="form-check-input" type="checkbox" role="switch" id="coachSync"
@@ -243,9 +243,12 @@
             {
                 return $"{state.LastError} ({waiting})";
             }
+            var plans = state.LastImportedAt is { } importedAt
+                ? $" · {state.LastImportedCount} new plan(s) {FormatWhen(importedAt)}"
+                : "";
             return state.LastSyncAt is { } last
-                ? $"Last upload {FormatWhen(last)} · {waiting}"
-                : $"No uploads yet · {waiting}";
+                ? $"Last sync {FormatWhen(last)} · {waiting}{plans}"
+                : $"Not synced yet · {waiting}";
         }
     }
 
