@@ -118,7 +118,16 @@ public class CoachSyncService
 
     public void SetEnabled(bool enabled)
     {
+        var wasEnabled = State.Enabled;
         Update(s => s.Enabled = enabled);
+
+        // While sync was off nothing was queued. Once the history went up, turning sync back on
+        // re-sends the whole log, so the gap reaches the server too (uploads are idempotent).
+        if (enabled && !wasEnabled && State.HistoryQueuedAt is not null)
+        {
+            QueueHistory();
+            return;
+        }
         SyncInBackground();
     }
 
