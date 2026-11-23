@@ -32,6 +32,9 @@ public class CoachSyncState
     // Imported plans whose delivery still has to be confirmed to the server.
     public List<string> PendingDelivered { get; set; } = new();
 
+    // Set once the whole local log was queued for upload (step 5, one-time history upload).
+    public DateTimeOffset? HistoryQueuedAt { get; set; }
+
     public int LastImportedCount { get; set; }
     public DateTimeOffset? LastImportedAt { get; set; }
 }
@@ -177,6 +180,23 @@ public class CoachSyncService
         {
             return ConnectionCheck.Unreachable;
         }
+    }
+
+    // Queues every entry in the local log once, so activities from before sync was turned on
+    // reach the server too. Uploads are idempotent on id, so entries already sent are harmless.
+    public int QueueHistory()
+    {
+        var entries = _log.LoadAll().ToList();
+        Update(s =>
+        {
+            foreach (var entry in entries.Where(e => !s.Outbox.Any(i => i.Id == e.Id)))
+            {
+                s.Outbox.Add(new OutboxItem { Id = entry.Id, UpdatedAt = entry.EffectiveUpdatedAt });
+            }
+            s.HistoryQueuedAt = DateTimeOffset.Now;
+        });
+        SyncInBackground();
+        return entries.Count;
     }
 
     public void SyncInBackground() => _ = SyncAsync();

@@ -182,11 +182,37 @@
             {
                 <div class="setting-hint px-3 pb-2">@testMessage</div>
             }
+            @if (hasToken && LogService.LoadAll().Count > 0)
+            {
+                <div class="setting-row">
+                    <div class="setting-text">
+                        <div class="setting-name">History</div>
+                        <div class="setting-hint">
+                            @if (CoachSync.State.HistoryQueuedAt is { } queuedAt)
+                            {
+                                @($"Sent for upload {FormatWhen(queuedAt)}. The status above shows what is still waiting.")
+                            }
+                            else
+                            {
+                                @("Activities from before sync was on aren't on the server yet. Send them once.")
+                            }
+                        </div>
+                    </div>
+                    @if (CoachSync.State.HistoryQueuedAt is null)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" @onclick="UploadHistory">Upload @LogService.LoadAll().Count</button>
+                    }
+                    else
+                    {
+                        <span class="setting-hint text-success">✓</span>
+                    }
+                </div>
+            }
         }
     </div>
     <p class="section-footnote">
-        Only activities logged or changed while sync is on are uploaded. Deleting one from the log also
-        removes it on the server.
+        Activities logged or changed while sync is on are uploaded automatically; older ones go up once via
+        History. Deleting one from the log also removes it on the server.
     </p>
 </section>
 
@@ -295,6 +321,8 @@
     }
 
     private Task SyncNow() => CoachSync.SyncAsync();
+
+    private void UploadHistory() => CoachSync.QueueHistory();
 
     private void OnSyncStatusChanged() => _ = InvokeAsync(StateHasChanged);
 
